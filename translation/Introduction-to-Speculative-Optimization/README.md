@@ -103,3 +103,6 @@ a0和a1两个特别的寄存器对应机器栈上函数的形参（在这个�
 ![ToPrimitive](https://github.com/RogerZZZZZ/V8-journeys/blob/master/translation/%08Introduction-to-Speculative-Optimization/6.png)
 
 当我们知道x和y都是数字时，我们就可排除一些副作用---比如说它不会导致电脑关机，不会写入文件，或是跳转到另外一个页面。此外我们知道这个操作不会抛出异常。而这些都是优化的关键，因为一个优化编译器只有在确定该表达式执行不会抛异常或是导致一些副作用，表达式才可以进行优化。
+
+
+## TO BE CONTINUED
