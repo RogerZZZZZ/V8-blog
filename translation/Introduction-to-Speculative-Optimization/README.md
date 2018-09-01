@@ -10,7 +10,7 @@
 
 在深入研究TurboFan是如何工作之前，我简短地对V8如何工作进行在较高层面上进行解释。（picture taken from the “JavaScript Start-up Performance” blog post by my colleague Addy Osmani)
 
-![Overview](https://github.com/RogerZZZZZ/V8-journeys/blob/master/translation/%08Introduction-to-Speculative-Optimization/1.png)
+![Overview](https://github.com/RogerZZZZZ/V8-journeys/blob/master/translation/%08Introduction-to-Speculative-Optimization/img/1.png)
 
 无论何时Chrome或者Node需要执行一些JS代码，都需要将源代码输入到V8。V8将代码输入到一个称为`Parser`的地方，`Parser` 创建了AST（抽象语法树），这个来源于我同事 [Marja Hölttä](https://twitter.com/marjakh)就这个话题如何在V8中工作有一个演讲[ “Parsing JavaScript — better lazy than eager?”](https://www.youtube.com/watch?v=Fg7niTmNNLg)。之后被输入到一个称为`Ignition Intepreter`转化为字节码流，之后再由`Ignition`执行。
 
@@ -31,7 +31,7 @@ console.log(add(1, 2))
 
 如果你在DevTools中执行,你会看到结果为3。
 
-![Function add](https://github.com/RogerZZZZZ/V8-journeys/blob/master/translation/%08Introduction-to-Speculative-Optimization/2.png)
+![Function add](https://github.com/RogerZZZZZ/V8-journeys/blob/master/translation/%08Introduction-to-Speculative-Optimization/img/2.png)
 
 接下来我们看看V8是如何得到这个结果的。我们会一步一步的来看`function add`。在之前提到的，我们首先会将函数的原发解析为AST，这一步由`Parser`完成，你可以在`d8 shell`中通过命令`--print-ast` 来查看V8内部生成的AST。
 
@@ -53,7 +53,7 @@ FUNC at 12
 ```
 
 上述的代码不太好理解，我们将它以图片的形式展示：
-![visulize function add](https://github.com/RogerZZZZZ/V8-journeys/blob/master/translation/%08Introduction-to-Speculative-Optimization/3.png)
+![visulize function add](https://github.com/RogerZZZZZ/V8-journeys/blob/master/translation/%08Introduction-to-Speculative-Optimization/img/3.png)
 
 开始，函数的字面量被解析为树的形态，一个子树为参数的声明，另一个子树是实际的函数体。在解析期间，是无法关联哪个名字对应哪个变量的。主要原因为JS中`变量提升`([funny var hoisting rules](https://developer.mozilla.org/en-US/docs/Web/JavaScript/Reference/Statements/var#var_hoisting))以及`eval`，当然也还有其他的原因。在解析器开始时创建叫做`VAR PROXY`的节点，在随后的作用于分析阶段，会将`VAR PROXY`节点连接到`VAR`节点，或者标记他们为全局或者动态查找中的一种，这取决于解析器是否看到`eval`在周围的作用域中。
 
@@ -82,7 +82,7 @@ Return
 
 为了解释这些，我们需要首先从较高层面来理解解释器是如何工作的，`Ignition`使用`register machine - 寄存器架构`(相对于之前在较早版本的V8中使用在FullCodegen compiler中的`stack machine`)。它保存了自己的局部状态，其中一些匹配到CPU的寄存器中，而另外的则匹配到实际机器的栈内存中的特定插槽(specific slots).
 
-![how the interpreter works](https://github.com/RogerZZZZZ/V8-journeys/blob/master/translation/%08Introduction-to-Speculative-Optimization/4.png)
+![how the interpreter works](https://github.com/RogerZZZZZ/V8-journeys/blob/master/translation/%08Introduction-to-Speculative-Optimization/img/4.png)
 
 a0和a1两个特别的寄存器对应机器栈上函数的形参（在这个例子中我们有两个形参）。形参是在源代码中被声明的参数，与在函数运行时被传入的实际数值不同。每个字节码最后的计算值都会被保存在一个被称为累加器(accumulator)，当前的栈帧和激活记录被栈指针标识，而程序计数器(program counter)指向当前在字节码中执行的指令。接下来我们来看一个例子，关于每个独立字节码都做了什么：
 - `栈检查(StackCheck)`比较stack point与一些上限的差别(实际上应该被称为下限，因为V8中栈的方向都是向下的)。如果栈高于某个阈值，我们就会停止函数的运行以及抛出`RangeError`以告知栈出现溢出。
@@ -96,11 +96,11 @@ a0和a1两个特别的寄存器对应机器栈上函数的形参（在这个例�
 
 现在你对V8如何执行你的JS代码有了个大概的了解，现在是时候开始看`TurboFan`在图片中是干什么的了，以及你的JS代码如何变为高效的机器码。`+`操作符已经算是一个在JS中很复杂的操作了，在得出输入的相加结果之前需要进行大量的检查。
 
-![Runtime Semantics](https://github.com/RogerZZZZZ/V8-journeys/blob/master/translation/%08Introduction-to-Speculative-Optimization/5.png)
+![Runtime Semantics](https://github.com/RogerZZZZZ/V8-journeys/blob/master/translation/%08Introduction-to-Speculative-Optimization/img/5.png)
 
 要想将上述的几行机器指令以最高性能运行(可与Java 和 C++媲美)，关键字为推测优化，通过假设输入的可能性。举例：当我们知道x和y都为数字时，我们执行x+y,我们就不需要处理他们任意一个为string或是其他更糟糕的情况--在操作数可以任意JS对象类型之前，我们需要对其执行抽象方法`ToPrimitive`。
 
-![ToPrimitive](https://github.com/RogerZZZZZ/V8-journeys/blob/master/translation/%08Introduction-to-Speculative-Optimization/6.png)
+![ToPrimitive](https://github.com/RogerZZZZZ/V8-journeys/blob/master/translation/%08Introduction-to-Speculative-Optimization/img/6.png)
 
 当我们知道x和y都是数字时，我们就可排除一些副作用---比如说它不会导致电脑关机，不会写入文件，或是跳转到另外一个页面。此外我们知道这个操作不会抛出异常。而这些都是优化的关键，因为一个优化编译器只有在确定该表达式执行不会抛异常或是导致一些副作用，表达式才可以进行优化。
 
