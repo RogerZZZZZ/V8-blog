@@ -8,7 +8,7 @@
 
 ## Translation
 
-- [Introducation to Speculative Optimization](https://github.com/RogerZZZZZ/V8-journeys/tree/master/translation/%08Introduction-to-Speculative-Optimization) - 9/2/2018
+- [Introducation to Speculative Optimization](https://github.com/RogerZZZZZ/V8-journeys/tree/master/translation/%08Introduction-to-Speculative-Optimization)
 
 ## Todo Tasks
 
