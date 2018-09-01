@@ -104,5 +104,203 @@ a0和a1两个特别的寄存器对应机器栈上函数的形参（在这个例�
 
 当我们知道x和y都是数字时，我们就可排除一些副作用---比如说它不会导致电脑关机，不会写入文件，或是跳转到另外一个页面。此外我们知道这个操作不会抛出异常。而这些都是优化的关键，因为一个优化编译器只有在确定该表达式执行不会抛异常或是导致一些副作用，表达式才可以进行优化。
 
+因为JS的特性我们在运行之前都不会知道值得类型，即当我们看一些源代码时，常常不可能知道操作的输入的可能类型是什么，这就是为什么我们需要根据之前收集的反馈信息进行推测，之后我们假设在未来我们总会看到类似的值。听起来也许十分的局限，但是它已经被证明在类似JS这样的动态语言中能很好作用了。
 
-## TO BE CONTINUED
+```javascript
+function add(x, y) {
+    return x + y
+}
+```
+
+在这个特殊的例子中，我们收集关于输入操作数以及'+'操作的结果(Add字节码)，当我们使用TurboFan来优化时，我们目前只看到了数字，我们放置一些检查代码来检查到x和y也为数字（在这个情况下，我们可以知道结果也将会是数字，如果其中一个检查失败，我们将会退回到解析这些字节码，这个过程称为`Deoptimization - 去优化`。因此TurboFan并不关心`+`操作符带来的其他的情况，也不需要生成机器码去处理，而是专注于数字这一种情况，这样能更好的转换为机器码。
+
+![Add function interpret process](https://github.com/RogerZZZZZ/V8-journeys/blob/master/translation/%08Introduction-to-Speculative-Optimization/img/7.png)
+
+由`Ignition`解释器收集来的反馈被存储在一个称为反馈向量(Feedback Vector)的地方(之前被称为类型反馈向量-Type Feedback Vector)，**这个特殊的数据结构连接在闭包上(TODO)**，并且包含多个根据具体内联缓存(inline cache -- IC)来存储反馈的插槽，即位集合，闭包和隐藏类。我的同事[Michael Stanton](https://twitter.com/ripsawridge)之前在[Amsterdam JS](https://amsterdamjs.com/)一篇名为[V8 and How it Listens to You](https://www.youtube.com/watch?v=u7zRSm8jzvA)的演讲，解释了一下反馈向量的概念。闭包也同样连接到`SharedFunctionInfo`，包含函数的基本信息(比如原始位置，字节码，严格/一般模式等等)，除此之外也有一个指向上下文的链接，它不包含函数的自由变量的值以及对全局对象的访问，(即<iframe>这样特定的数据结构)
+
+在函数`add`中，Feedback Vector有一个有趣的插槽(除此之外还有普通的插槽)，这也是一个`BinaryOp`插槽(二进制操作`+ - *`等等)，用于记录输入的反馈以及我们目前看到的结果。你可以在工具Debug build of d8中的`%DebugPrint()`，并在运行时加上`--allow-natives-syntax`来查看一个特定闭包中的反馈向量。
+
+```javascript
+function add(x, y) {
+  return x + y;
+}
+console.log(add(1, 2));
+%DebugPrint(add);
+```
+```
+Running this with --allow-natives-syntax in d8 we observe:
+
+$ out/Debug/d8 --allow-natives-syntax add.js
+DebugPrint: 0xb5101ea9d89: [Function] in OldSpace
+…
+ - feedback vector: 0xb5101eaa091: [FeedbackVector] in OldSpace
+ - length: 1
+ SharedFunctionInfo: 0xb5101ea99c9 <SharedFunctionInfo add>
+ Optimized Code: 0
+ Invocation Count: 1
+ Profiler Ticks: 0
+ Slot #0 BinaryOp BinaryOp:SignedSmall
+```
+
+我们看到调用次数(Invocation Count)为1，因为我们只调用了一次函数，此时我们还没有任何的优化(Optimized Code为0)，但在Feedback Vector中只有一个插槽，即为BinaryOp，并且现在的反馈为`SignedSmall`。这是什么意思呢？字节码`Add`表明反馈插槽位置0现在只看到了类型为`SignedSmall`的输入，并且也只输出类型为`SignedSmall`的输出。
+
+但是什么事`SignedSmall`呢？JS并没有这名字的类型。这个名字来源于V8所做的优化操作，它表示小的有符号整数经常出现在程序中，需要特别的处理（其他的JS引擎也有类似的优化策略）。
+
+
+### 补充：值的表示
+
+让我们简要的说明JS值是如何在V8中表示的，以更好地理解底层的概念。V8使用[Point Tagging -- 指针标记](https://en.wikipedia.org/wiki/Tagged_pointer)来在一般情况下表示值。我们通常在JS中使用的值都在堆中，这些值也需要被垃圾回收器进行管理(garbage collector)。但有一些值如果一直分配内存给他们将会有很昂贵的开销。特别是对于那些用于数组下标和存储暂时计算结果的小整数。
+
+![Store of Smi](https://github.com/RogerZZZZZ/V8-journeys/blob/master/translation/%08Introduction-to-Speculative-Optimization/img/8.png)
+
+在V8中我们有两种标识：分别是Smi(`Small Integer`的缩写)以及堆对象，堆对象指向堆中的地址，我们需要知道的一点是，所有被分配的对象都需要对齐`word`的边界(64位，32位架构有所不同)，这就意味着2、3个最低位会一直为0，我们使用最低的2或3位来去辨别是Sim(1)还是堆对象(0)。对于64位架构上的Smi，后32位都会被标记为0，前32位用于存储对应的值。这就允许可以高效的在内存中访问32位的数值，而不是不得不使用load以及shift相关的值。并且JS中位运算都是32位的。
+
+### 反馈格 (Feedback Lattice)
+
+`SignedSmall`类型的反馈代表了所有有Smi标识的值。对于`Add`操作，这表示目前只看到输入都为Smi，以及输出也可以被标识为Smi(也就是说，所有的值都没有超过32位整数)，我们看看如果输入其他不是Smi类型的数字到Add函数中会发生什么.
+
+```javascript
+function add(x, y) {
+  return x + y;
+}
+
+console.log(add(1, 2));
+console.log(add(1.1, 2.2));
+%DebugPrint(add);
+```
+
+```
+Running this again with --allow-natives-syntax in d8 we observe:
+
+$ out/Debug/d8 --allow-natives-syntax add.js
+DebugPrint: 0xb5101ea9d89: [Function] in OldSpace
+…
+ - feedback vector: 0x3fd6ea9ef9: [FeedbackVector] in OldSpace
+ - length: 1
+ SharedFunctionInfo: 0x3fd6ea9989 <SharedFunctionInfo add>
+ Optimized Code: 0
+ Invocation Count: 2
+ Profiler Ticks: 0
+ Slot #0 BinaryOp BinaryOp:Number
+```
+
+首先我们看到调用次数现在为2，因为我们调用了函数两次。我们还看到现在`BinaryOp`插槽的值现在变为`Number`，这表明我们已经传入了其他类型的数字(如非整数)，此外这还有一张反馈的状态图如下：
+
+![Feedback Lattice](https://github.com/RogerZZZZZ/V8-journeys/blob/master/translation/%08Introduction-to-Speculative-Optimization/img/9.png)
+
+反馈的状态从`None`开始，表示我们还没有看到任何东西(即输入)，所以我们不知道任何东西。`Any`状态表示我们看到了不兼容的输入和输出的组合，此时`Add`可以被认为是多态的(Polymorphic)。相反的，其余的状态表明`Add`是单态的（Monomorphic）,因为看到输入和输出都是相同类型的。
+
+- **SignedSmall** 表示所有小整数(有效位数为32/31位，取决于不同架构下word的大小不同)。
+- **Number** 表示所有常规数字（包含SignedSmall).
+- **NumberOrOddball** 包含所有数字，以及undefined, null, true和false
+- **String** 表示输入是字符串
+- **BigInt** 表示输入都是大整数，可以参考现在[第二阶段的提案](https://tc39.github.io/proposal-bigint/)
+
+需要强调的一点是，反馈只能够在图中前进，不能够后退，如果我们尝试这样做，当我们看到的值不等于反馈的时候，如果我们回退，将会进入到一个去优化的循环中，在这个循环中优化编译器将会消耗反馈，也会跳出优化的代码回到解释器中。下次函数再次执行的时候，我们又会再次优化。所以如果我们在状态表中回退，TurboFan将会再次生成同样的代码，这样引擎将会一直忙于优化以及去优化的过程，而不是以高性能运行你的JS代码。
+
+### 优化管道 (The Optimization Pipeline)
+
+现在我们知道了`Ignition`是如何给函数收集反馈了，现在我们看看TurboFan是如何利用这些反馈来生成最少代码的，我会使用内部指令%OptimizeFunctionOnNextCall()来在一个特定时间在V8中优化一个函数，我们经常使用这些内部指令来以非常特定的方式测试引擎。
+
+```javascript
+function add(x, y) {
+  return x + y;
+}
+
+add(1, 2); // Warm up with SignedSmall feedback.
+%OptimizeFunctionOnNextCall(add);
+add(1, 2); // Optimize and run generated code.
+```
+
+这里我们首先给函数传递两个`SignedSmall`即小整数，并且结果也将会在小整数的范围中。之后我们告诉V8它需要使用TurboFan来优化这个函数当这个函数在下次调用的时候。最后我们调用了函数，触发了TurboFan运行生成机器码。
+
+![How TurboFan works](https://github.com/RogerZZZZZ/V8-journeys/blob/master/translation/%08Introduction-to-Speculative-Optimization/img/10.png)
+
+**TODO**
+TurboFan拿到之前生成给函数的字节码以及从函数的反馈向量中提取出的相关反馈，将它变为一个图示，再将图传递给前端，优化以及后端不同的阶段，我不会在这里细说这些步骤，这个话题是另一个系列博客讨论的，我们该看的是最终生成的机器码，以及这个优化推测是怎么运作的。你可以看优化代码的生成通过加上命令`--print-opt-code`
+
+![How TurboFan works](https://github.com/RogerZZZZZ/V8-journeys/blob/master/translation/%08Introduction-to-Speculative-Optimization/img/11.png)
+
+这是x64架构下TurboFan生成的代码，我留下一些注解并去掉了一些不需要关注的点(也就是一些去优化的确切执行序列)，我们来看看代码做了什么:
+
+```
+# Prologue
+leaq rcx,[rip+0x0]
+movq rcx,[rcx-0x37]
+testb [rcx+0xf],0x1
+jnz CompileLazyDeoptimizedCode
+push rbp
+movq rbp,rsp
+push rsi
+push rdi
+cmpq rsp,[r13+0xdb0]
+jna StackCheck
+```
+
+开场部分检查了对象是否合法，或者是一些条件是否变化，这时我们就需要移除这些代码。这部分具体内容可以参考我的实习生[Juliana Franco](https://twitter.com/jupvfranco)的文章 **TODO** [Internship on Laziness](https://v8project.blogspot.com/2017/10/lazy-unlinking.html)。当我们知道这个代码依然有效，我们就会建立一个栈帧来检查栈上是否还有空间运行这段代码。
+
+```
+# Check x is a small integer
+movq rax,[rbp+0x18]
+test al,0x1
+jnz Deoptimize
+# Check y is a small integer
+movq rbx,[rbp+0x10]
+testb rbx,0x1
+jnz Deoptimize
+# Convert y from Smi to Word32
+movq rdx,rbx
+shrq rdx, 32
+# Convert x from Smi to Word32
+movq rcx,rax
+shrq rcx, 32
+```
+
+之后我们开始看函数的主体部分，我们从栈中加载了参数x, y的值(相对于帧指针rbp)，之后将会通过检查低位检查是否两个输入都是`Smi`(因为反馈说两个输入都会是Smi)。一旦我们知道它们都是Smi，我们将会把它们转化为32bit，即将右边32bit移动到左边。
+
+如果其中一个输入不为Smi，优化代码将会立刻弹出，之后去优化将会将函数状态恢复到解释器那个步骤。
+
+边注：我们也可以在参数为Smi的基础上执行函数Add，这就是我们之前的优化编译器`CrankShaft`的做法，这将会节约我们做shifting的时间，但是目前TurboFan没有一个很好的想法(heuristic-启发式教育..)去决定在Smi为输入的前提下执行该操作是否有利，这也并不一直都是理想的选择，毕竟这也和上下文中究竟是哪个运算被使用有关系。
+
+```
+# Add x and y (incl. overflow check)
+addl rdx,rcx
+jo Deoptimize
+# Convert result to Smi
+shlq rdx, 32
+movq rax,rdx
+# Epilogue
+movq rsp,rbp
+pop rbp
+ret 0x18
+```
+
+接下来我们将要执行整数输入的相加。我们需要明确的测试一处，因为返回的结果有可能会超过32位，在这个情况下我们就需要回到解释器版本的函数状态。在之后的将会把反馈类型提升到Number。最后我们将结果通过上移32位转化为Smi类型，然后将值返回到累加寄存器rax中。
+
+就像我之前说的，这还不是最好的代码，因为我们可以直接对Smi类型做加法，而不是转化为Word32，这可以省去我们三个位移指令。但是抛开这些小的方面，你依然可以看到生成的代码是被高度优化并且适用于反馈的。它不需要尝试处理那些数字，字符串，大整数或是其他JS类型，只需要专心处理我们见过的类型。这就是许多JS应用性能达到顶峰的原因。
+
+### 进一步
+
+如果你突然改变想法想计算两个数字的加法结果呢？我们改变一下例子：
+```javascript
+function add(x, y) {
+  return x + y;
+}
+
+add(1, 2); // Warm up with SignedSmall feedback.
+%OptimizeFunctionOnNextCall(add);
+add(1, 2); // Optimize and run generated code.
+add(1.1, 2.2); // Oops?!
+```
+
+通过命令`--allow-natives-syntax 以及 --trace-deopt`，我们可以观察到：
+
+![change to number example](https://github.com/RogerZZZZZ/V8-journeys/blob/master/translation/%08Introduction-to-Speculative-Optimization/img/12.png)
+
+这有很多令人疑惑的输出，让我们提取一些重要的信息，首先我们标记出了为什么我们要去优化，因为这里输入不再是Smi，这就表示我们之前的假设有问题，我们看到了一个HeapObject，我们把第一个输出放入到rax中，并期望它是一个smi，但是他却是数字1.1，所以我们在x的检查就已经失败了，所以我们需要去优化并且回到解释字节码的版本。这将会是另一个文章讨论的了。
+
+### Takeaway
+I hope you enjoyed this dive into how speculative optimization works in V8 and how it helps us to reach peak performance for JavaScript applications. Don’t worry too much about these details though. When writing applications in JavaScript focus on the application design instead and make sure to use appropriate data structures and algorithms. Write idiomatic JavaScript, and let us worry about the low level bits of the JavaScript performance instead. If you find something that is too slow, and it shouldn’t be slow, please file a bug report, so we get a chance to look into that.
+
+
+## DONE
