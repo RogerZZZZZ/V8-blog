@@ -14,7 +14,7 @@
 
 无论何时Chrome或者Node需要执行一些JS代码，都需要将源代码输入到V8。V8将代码输入到一个称为`Parser`的地方，`Parser` 创建了AST（抽象语法树），这个来源于我同事 [Marja Hölttä](https://twitter.com/marjakh)就这个话题如何在V8中工作有一个演讲[ “Parsing JavaScript — better lazy than eager?”](https://www.youtube.com/watch?v=Fg7niTmNNLg)。之后被输入到一个称为`Ignition Intepreter`转化为字节码流，之后再由`Ignition`执行。
 
-在执行期间，`Ignition`收集关于输入的信息以及反馈给一些特定的操作。一些反馈信息就被`Ignition`自己使用来字节码的后续解释器。举例：对于像`o.x`这样的是属性访问，当o不变化时（即你一致都会传递`{x:v}` v为String给o），我们就会对如何拿到x的值进行缓存。再之后的字节码解析过程中我们将不会对`再o中需要属性x`的操作进行搜索。底层实现我们称之为内敛缓存(`inline cache`)。你可以在下面的blog中找到更多详情 **TODO** ([“What’s up with monomorphism?”](https://mrale.ph/blog/2015/01/11/whats-up-with-monomorphism.html))。
+在执行期间，`Ignition`收集关于输入的信息以及反馈给一些特定的操作。一些反馈信息就被`Ignition`自己使用来字节码的后续解释器。举例：对于像`o.x`这样的是属性访问，当o不变化时（即你一致都会传递`{x:v}` v为String给o），我们就会对如何拿到x的值进行缓存。再之后的字节码解析过程中我们将不会对`再o中需要属性x`的操作进行搜索。底层实现我们称之为内敛缓存(`inline cache`)。你可以在下面的blog中找到更多详情 ([“What’s up with monomorphism?”](https://mrale.ph/blog/2015/01/11/whats-up-with-monomorphism.html))。
 
 更重要的是，基于你的工作量，由`Ignition`解释器收集来的反馈信息将被TurboFan进行处理来来生成初高性能的机器码，所用技术就是今天的主题推测优化。在这里，优化编译器将会查看所有类型的值，并推测我们将来需要相同的值，这将会让TurboFan减少很多不需要处理的工作，从而在最高性能情况下执行Javascript。
 
@@ -90,7 +90,7 @@ a0和a1两个特别的寄存器对应机器栈上函数的形参（在这个例�
 - `Add a0, [0]` 读取寄存器a0的值并累加到accumulator寄存器上，结果将会再次被放入accumulator寄存器中，`+`同样可以表示字符串的连接，`+`操作可以执行任意类型的操作数，`+`在JS中十分的复杂，有许多人在会谈中去阐明这种复杂性，比如 Emily Freeman 最近在 JS Kongress 中有一个题目为`”JavaScript’s “+” Operator and Decision Fatigue”`的主题演讲。`Add`操作符中的[0]指向一个`feedback vector slot`，即`Ignition`存储函数执行期间我们看到的值得分析信息。当我们之后讲解`TurboFan`如何优化函数的时候再回到这个话题。
 - `Return` 结束当前函数的运行，以及将控制归还给调用者，返回值是accumulator寄存器中当前的值。
 
-我的同事Franziska Hinkelmann 写了一篇文章 **TODO** [“Understanding V8’s Bytecode”](https://medium.com/dailyjs/understanding-v8s-bytecode-317d46c94775)。这边文章将提供更多关于V8的字节码如何工作的细节。
+我的同事Franziska Hinkelmann 写了一篇文章 [“Understanding V8’s Bytecode”](https://medium.com/dailyjs/understanding-v8s-bytecode-317d46c94775)。这边文章将提供更多关于V8的字节码如何工作的细节。
 
 ### 推测优化
 
@@ -116,7 +116,7 @@ function add(x, y) {
 
 ![Add function interpret process](https://github.com/RogerZZZZZ/V8-journeys/blob/master/translation/%08Introduction-to-Speculative-Optimization/img/7.png)
 
-由`Ignition`解释器收集来的反馈被存储在一个称为反馈向量(Feedback Vector)的地方(之前被称为类型反馈向量-Type Feedback Vector)，**这个特殊的数据结构连接在闭包上(TODO)**，并且包含多个根据具体内联缓存(inline cache -- IC)来存储反馈的插槽，即位集合，闭包和隐藏类。我的同事[Michael Stanton](https://twitter.com/ripsawridge)之前在[Amsterdam JS](https://amsterdamjs.com/)一篇名为[V8 and How it Listens to You](https://www.youtube.com/watch?v=u7zRSm8jzvA)的演讲，解释了一下反馈向量的概念。闭包也同样连接到`SharedFunctionInfo`，包含函数的基本信息(比如原始位置，字节码，严格/一般模式等等)，除此之外也有一个指向上下文的链接，它不包含函数的自由变量的值以及对全局对象的访问，(即<iframe>这样特定的数据结构)
+由`Ignition`解释器收集来的反馈被存储在一个称为反馈向量(Feedback Vector)的地方(之前被称为类型反馈向量-Type Feedback Vector)，**这个特殊的数据结构连接在闭包上**，并且包含多个根据具体内联缓存(inline cache -- IC)来存储反馈的插槽，即位集合，闭包和隐藏类。我的同事[Michael Stanton](https://twitter.com/ripsawridge)之前在[Amsterdam JS](https://amsterdamjs.com/)一篇名为[V8 and How it Listens to You](https://www.youtube.com/watch?v=u7zRSm8jzvA)的演讲，解释了一下反馈向量的概念。闭包也同样连接到`SharedFunctionInfo`，包含函数的基本信息(比如原始位置，字节码，严格/一般模式等等)，除此之外也有一个指向上下文的链接，它不包含函数的自由变量的值以及对全局对象的访问，(即<iframe>这样特定的数据结构)
 
 在函数`add`中，Feedback Vector有一个有趣的插槽(除此之外还有普通的插槽)，这也是一个`BinaryOp`插槽(二进制操作`+ - *`等等)，用于记录输入的反馈以及我们目前看到的结果。你可以在工具Debug build of d8中的`%DebugPrint()`，并在运行时加上`--allow-natives-syntax`来查看一个特定闭包中的反馈向量。
 
@@ -216,7 +216,6 @@ add(1, 2); // Optimize and run generated code.
 
 ![How TurboFan works](https://github.com/RogerZZZZZ/V8-journeys/blob/master/translation/%08Introduction-to-Speculative-Optimization/img/10.png)
 
-**TODO**
 TurboFan拿到之前生成给函数的字节码以及从函数的反馈向量中提取出的相关反馈，将它变为一个图示，再将图传递给前端，优化以及后端不同的阶段，我不会在这里细说这些步骤，这个话题是另一个系列博客讨论的，我们该看的是最终生成的机器码，以及这个优化推测是怎么运作的。你可以看优化代码的生成通过加上命令`--print-opt-code`
 
 ![How TurboFan works](https://github.com/RogerZZZZZ/V8-journeys/blob/master/translation/%08Introduction-to-Speculative-Optimization/img/11.png)
@@ -237,7 +236,7 @@ cmpq rsp,[r13+0xdb0]
 jna StackCheck
 ```
 
-开场部分检查了对象是否合法，或者是一些条件是否变化，这时我们就需要移除这些代码。这部分具体内容可以参考我的实习生[Juliana Franco](https://twitter.com/jupvfranco)的文章 **TODO** [Internship on Laziness](https://v8project.blogspot.com/2017/10/lazy-unlinking.html)。当我们知道这个代码依然有效，我们就会建立一个栈帧来检查栈上是否还有空间运行这段代码。
+开场部分检查了对象是否合法，或者是一些条件是否变化，这时我们就需要移除这些代码。这部分具体内容可以参考我的实习生[Juliana Franco](https://twitter.com/jupvfranco)的文章[Internship on Laziness](https://v8project.blogspot.com/2017/10/lazy-unlinking.html)。当我们知道这个代码依然有效，我们就会建立一个栈帧来检查栈上是否还有空间运行这段代码。
 
 ```
 # Check x is a small integer
