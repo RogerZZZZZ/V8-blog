@@ -12,7 +12,7 @@
 
 ## 动态查找101
 
-![simple implementation](https://github.com/RogerZZZZZ/V8-blog/tree/master/translation/What's-up-with-monomorphism/img/1.png)
+![simple implementation](https://github.com/RogerZZZZZ/V8-journeys/tree/master/translation/What's-up-with-monomorphism/img/1.png)
 
 为了简单起见，这个内容将会以JS中最简单的属性访问为例，比如下面的代码`o.x`。同时这是十分重要的去理解关于任何`动态范围(dynamically bound)`中的属性查找操作或是算式的计算。
 
@@ -58,7 +58,7 @@ void Interpret(jsbytecodes bc) {
 
 我们的解释器是健忘的: 每次我们需要一个属性的值我们就要执行一次属性查找的算法，它并没有从之前的尝试中学习到任何东西，而是每次付出的代价都相同。这就是为什么面向性能的虚拟机中属性查找的实现是不同的。
 
-![real implementation](https://github.com/RogerZZZZZ/V8-blog/tree/master/translation/What's-up-with-monomorphism/img/2.png)
+![real implementation](https://github.com/RogerZZZZZ/V8-journeys/tree/master/translation/What's-up-with-monomorphism/img/2.png)
 
 要是程序中每次属性的访问都有能力从之前见过的对象中学习，并且将这个知识运用到相似的新对象上会怎么样呢？可能这会让我们省去很多执行一般查找算法的时间，而去在一些特定形式的对象上使用更快的方法。
 
@@ -91,11 +91,11 @@ f({ x: 6, a: 1 }) // polymorphic, degree 4
 f({ x: 7, b: 1 }) // megamorphic
 ```
 
-![monomorphic state](https://github.com/RogerZZZZZ/V8-blog/tree/master/translation/What's-up-with-monomorphism/img/3.png)
+![monomorphic state](https://github.com/RogerZZZZZ/V8-journeys/tree/master/translation/What's-up-with-monomorphism/img/3.png)
 
 `megamorphic`状态的存在是为了防止多态缓存不受控制的增长，意味着“我看到太多不同形状的对象了，我放弃追踪他们了”。在V8中`megamorphic ICs`也会继续进行缓存，但是将会将想要缓存的东西放入全局的哈希表中，而不是在本地进行操作。这张哈希表有固定的大小，如果出现碰撞，将会简单的进行覆盖。
 
-![megamorphic ICs](https://github.com/RogerZZZZZ/V8-blog/tree/master/translation/What's-up-with-monomorphism/img/4.png)
+![megamorphic ICs](https://github.com/RogerZZZZZ/V8-journeys/tree/master/translation/What's-up-with-monomorphism/img/4.png)
 
 现在我们用个小的练习来看看大家的理解:
 ```javascript
