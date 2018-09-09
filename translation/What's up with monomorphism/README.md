@@ -1,5 +1,7 @@
 > Article: What's up with monomorphism?
+
 > Author: Vyacheslav Egorov
+
 > Original Link: [Link](https://mrale.ph/blog/2015/01/11/whats-up-with-monomorphism.html)
 
 有关JS性能的博客和演讲都经常强调单态的重要性。然而他们一般都没有对单态/多态是什么给出易理解的解释。不出所料的是我得到关于性能方面最常见的问答请求之一就是解释单态究竟是什么，多态是如何产生的，它为什么不好。
