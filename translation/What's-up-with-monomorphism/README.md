@@ -146,7 +146,7 @@ g({x: 0, y: 0})
 
 以上述函数为例，每个IC（含有7个：`.x, .x, *, .y, .y, *, +`）都独自运行。每个属性在IC中以与自己形状相同的缓存在`o`中进行检查。算术IC`+`将会检查它的输入是否是数字(以及是什么类型的数字 - 在V8中有把不同的数字表示(如：`SignedSmall`, `Number`, `NumberOrOddball`等)) - 即使这个结果可以由`* ICs`推导出。
 
-JS中的算术操作是`inherently typed`,比如 `a | 0`永远返回32位整数，`+a`永远放回数字。但是大多数其他的操作无法有这样的保证。这就让在JS中写一个提前作用的优化编译器称为一个难题。对比与将JS一次编译为`AOT fashion`，大多JS虚拟机分为多个执行层。比如V8中，代码第一次执行时不会有任何优化，被一个无优化的基础编译器编译。被调用频率高的函数将会被优化编译器重编译。
+JS中的算术操作是`inherently typed`,比如 `a | 0`永远返回32位整数，`+a`永远放回数字。但是大多数其他的操作无法有这样的保证。这就让在JS中写一个提前作用的优化编译器称为一个难题。对比与将JS只进行一次预编译`，大多JS虚拟机分为多个执行层。比如V8中，代码第一次执行时不会有任何优化，被一个无优化的基础编译器编译。被调用频率高的函数将会被优化编译器重编译。
 
 等待代码加载到虚拟机(`warm up`)主要有两个原因
 
@@ -154,6 +154,59 @@ JS中的算术操作是`inherently typed`,比如 `a | 0`永远返回32位整数�
 
 - 减少启动延迟：优化编译器慢于无优化的编译器。意味着被优化的代码要被使用一定次数才有优化的意义
 - 它给了内敛缓存收集类型反馈的机会
+
+被书写JS的人们强调的一点是，JS没有包含足够的内部类型信息(`inherent type information`)来支持全部静态类型以及预编译。`JIT`不得不进行预测: JIT必须对它优化的代码中的用法和行为做出有根据的推测，然后生成在特定假设下的专门的代码。 换句话说编译器需要假设在需要优化的函数中会见到什么类型的对象。 幸运的是这恰好就是内联缓存收集的信息。
+
+- 单态缓存说“我只见过类型A”
+- N维的多态缓存说”我只见过A1....An“
+- Megamorphic 缓存说”我见过很多东西“
+
+![type guard](https://github.com/RogerZZZZZ/V8-blog/blob/master/translation/What's-up-with-monomorphism/img/5.png)
+
+优化编译器查看IC收集来的信息，然后生成对应的`intermediate representation(IR)`。 IR指令通常比通常的JS操作更加底层以及明确。比如`.x` IC只看到`{x, y}`形状的对象，之后优化器会使用IR指令去对象中特定偏移量的地方读取属性，再用它加载`.x`。当然在任意对象上使用这样的指令是不安全的，所以优化器预先设置了一个类型哨兵(`type guard`)。类型哨兵在对象到达特定操作前检查他的形状(`shape of object`)，如果没有得到预期的对象，将不会在进行下去，而是会以未优化的代码继续运行。这个过程被称为去优化(`deoptimization`)。去优化的发生不仅仅只由类型哨兵产生，比如：算术操作只用于32位整数，如果计算结果溢出将会执行去优化，`arr[idx]`中的idx需要在其长度范围内，否则会因为idx越界，`arr[idx]`不存在导致去优化的发生。
+
+![deoptimization](https://github.com/RogerZZZZZ/V8-blog/blob/master/translation/What's-up-with-monomorphism/img/6.png)
+
+现在可以列出两条优化过程的缺点：
+
+未优化 | 优化
+--- | ---
+每个操作会有任意不可知的副作用，因为它是通用的，并且实现所有语义 | 代码的特殊化或是消除不可预见性，副作用被很好的定义(通过偏移量读取属性没有副作用)
+每个操作都是独立的，没有信息的交流 | 操作被分解为更底层的IR指令，之后都将会被一起优化，这就给发现和消除冗余提供了机会
+
+实际上根据类型反馈构建明确的IR只是优化流程中的第一步。一旦IR准备就绪，编译器就会运行多次来寻找不变量和消除冗余。 在这一部运行过程的分析是过程中的(`intraprocedural`)，编译器也被强制在每次执行中假设最差的任意副作用。我们需要知道的是通常非专门化的操作本质都是调用自己。比如 `+` 求值就是调用`valueOf`以及调用getter方法来获得`o.x`属性访问。这就意味着那些由于某些原因特化失败的优化器将会阻塞接下来的优化进程。
+
+![eliminate redundancies](https://github.com/RogerZZZZZ/V8-blog/blob/master/translation/What's-up-with-monomorphism/img/7.png)
+
+一个常见的例子为当在相同形状的对象中取取相同值时类型哨兵冗余。下面是最初函数g的IR的样子：
+```
+	CheckMap v0, {x,y}  ;; shape check 
+v1	Load v0, @12        ;; load o.x @12 is offset
+  CheckMap v0, {x,y} 
+v2	Load v0, @12        ;; load o.x 
+i3	Mul v1, v2          ;; o.x * o.x 
+  CheckMap v0, {x,y} 
+v4	Load v0, @16        ;; load o.y 
+  CheckMap v0, {x,y} 
+v5	Load v0, @16        ;; load o.y 
+i6	Mul v4, v5          ;; o.y * o.y 
+i7	Add i3, i6          ;; o.x * o.x + o.y * o.y 
+```
+
+这个IR对`v0`在相同形状下检查了四遍，即使之后检查不会影响到`v0`的形状。认真的读者会注意到读取`v2 & v5`也是冗余的
+，因为没有对相关属性有任何写入。幸运的是[GVN](https://en.wikipedia.org/wiki/Value_numbering)将会作用于IR，然后消除其中的冗余，下面为结果:
+
+```
+	;; After GVN 
+  CheckMap v0, {x,y} 
+v1	Load v0, @12 
+i3	Mul v1, v1 
+v4	Load v0, @16 
+i6	Mul v4, v4 
+i7	Add i3, i6 
+```
+
+然而上述提到的消除冗余只可能在冗余操作之间没有干扰项时才可能。当有个调用出现在`v1, v2`之间时，我们就需要非常谨慎的假设被调用者有权限访问`v0`，并且可以执行add、remove和更改属性的操作，这就让消除`v2`的访问或是`CheckMap`变为不可能。
 
 # To be continued
 
