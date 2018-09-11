@@ -129,3 +129,31 @@ ff(false, { x: 2, y: 0 })
 
 然而这仅仅只是一半的原理(`truth`)。除了加速你的代码，内联缓存同样也作为间谍来优化编译器 - 最终再次更加深度地加速你的代码。
 
+### 推测和优化
+
+内联缓存不能带来巅峰性能的原因有两个：
+
+- 每个IC都独立运行，对其他IC一无所知
+- 每个IC当它不能处理输入时最终都会退回到运行时。意思为IC的本质是一个带有副作用的通用操作，而且经常不知道结果的类型。
+
+```javascript
+function g(o) {
+  return o.x * o.x + o.y * o.y
+}
+
+g({x: 0, y: 0})
+```
+
+以上述函数为例，每个IC（含有7个：`.x, .x, *, .y, .y, *, +`）都独自运行。每个属性在IC中以与自己形状相同的缓存在`o`中进行检查。算术IC`+`将会检查它的输入是否是数字(以及是什么类型的数字 - 在V8中有把不同的数字表示(如：`SignedSmall`, `Number`, `NumberOrOddball`等)) - 即使这个结果可以由`* ICs`推导出。
+
+JS中的算术操作是`inherently typed`,比如 `a | 0`永远返回32位整数，`+a`永远放回数字。但是大多数其他的操作无法有这样的保证。这就让在JS中写一个提前作用的优化编译器称为一个难题。对比与将JS一次编译为`AOT fashion`，大多JS虚拟机分为多个执行层。比如V8中，代码第一次执行时不会有任何优化，被一个无优化的基础编译器编译。被调用频率高的函数将会被优化编译器重编译。
+
+等待代码加载到虚拟机(`warm up`)主要有两个原因
+
+> 译者: Once class-loading is complete, all important classes (used at the time of process start) are pushed into the JVM cache (native code) – which makes them accessible faster during runtime. Other classes are loaded on a per-request basis. ---- warm up in JVM
+
+- 减少启动延迟：优化编译器慢于无优化的编译器。意味着被优化的代码要被使用一定次数才有优化的意义
+- 它给了内敛缓存收集类型反馈的机会
+
+# To be continued
+
