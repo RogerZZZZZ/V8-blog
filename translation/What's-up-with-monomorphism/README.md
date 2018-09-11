@@ -174,39 +174,39 @@ JS中的算术操作是`inherently typed`,比如 `a | 0`永远返回32位整数�
 每个操作会有任意不可知的副作用，因为它是通用的，并且实现所有语义 | 代码的特殊化或是消除不可预见性，副作用被很好的定义(通过偏移量读取属性没有副作用)
 每个操作都是独立的，没有信息的交流 | 操作被分解为更底层的IR指令，之后都将会被一起优化，这就给发现和消除冗余提供了机会
 
-实际上根据类型反馈构建明确的IR只是优化流程中的第一步。一旦IR准备就绪，编译器就会运行多次来寻找不变量和消除冗余。 在这一部运行过程的分析是过程中的(`intraprocedural`)，编译器也被强制在每次执行中假设最差的任意副作用。我们需要知道的是通常非专门化的操作本质都是调用自己。比如 `+` 求值就是调用`valueOf`以及调用getter方法来获得`o.x`属性访问。这就意味着那些由于某些原因特化失败的优化器将会阻塞接下来的优化进程。
+实际上根据类型反馈构建明确的IR只是优化流程中的第一步。一旦IR准备就绪，编译器就会运行多次来寻找不变量和消除冗余。 在这一部运行过程的分析是过程中的(`intraprocedural`)，编译器也被强制在每次执行中假设最差的任意副作用。我们需要知道的是通常非专门化的操作本质都是调用自己。比如 `+` 求值就是调用`valueOf`以及调用getter方法来获得`o.x`属性访问。这就意味着那些由于某些原因特化失败的优化器将会阻塞接下来的优化进程。
 
 ![eliminate redundancies](https://github.com/RogerZZZZZ/V8-blog/blob/master/translation/What's-up-with-monomorphism/img/7.png)
 
-一个常见的例子为当在相同形状的对象中取取相同值时类型哨兵冗余。下面是最初函数g的IR的样子：
+一个常见的例子为当在相同形状的对象中取取相同值时类型哨兵冗余。下面是最初函数g的IR的样子：
 ```
-	CheckMap v0, {x,y}  ;; shape check 
-v1	Load v0, @12        ;; load o.x @12 is offset
-  CheckMap v0, {x,y} 
-v2	Load v0, @12        ;; load o.x 
-i3	Mul v1, v2          ;; o.x * o.x 
-  CheckMap v0, {x,y} 
-v4	Load v0, @16        ;; load o.y 
-  CheckMap v0, {x,y} 
-v5	Load v0, @16        ;; load o.y 
-i6	Mul v4, v5          ;; o.y * o.y 
-i7	Add i3, i6          ;; o.x * o.x + o.y * o.y 
+    CheckMap v0, {x,y}  ;; shape check 
+v1  Load v0, @12        ;; load o.x @12 is offset
+    CheckMap v0, {x,y} 
+v2  Load v0, @12        ;; load o.x 
+i3  Mul v1, v2          ;; o.x * o.x 
+    CheckMap v0, {x,y} 
+v4  Load v0, @16        ;; load o.y 
+    CheckMap v0, {x,y} 
+v5  Load v0, @16        ;; load o.y 
+i6  Mul v4, v5          ;; o.y * o.y 
+i7  Add i3, i6          ;; o.x * o.x + o.y * o.y 
 ```
 
 这个IR对`v0`在相同形状下检查了四遍，即使之后检查不会影响到`v0`的形状。认真的读者会注意到读取`v2 & v5`也是冗余的
 ，因为没有对相关属性有任何写入。幸运的是[GVN](https://en.wikipedia.org/wiki/Value_numbering)将会作用于IR，然后消除其中的冗余，下面为结果:
 
 ```
-	;; After GVN 
-  CheckMap v0, {x,y} 
-v1	Load v0, @12 
-i3	Mul v1, v1 
-v4	Load v0, @16 
-i6	Mul v4, v4 
-i7	Add i3, i6 
+    ;; After GVN 
+    CheckMap v0, {x,y} 
+v1  Load v0, @12 
+i3  Mul v1, v1 
+v4  Load v0, @16 
+i6  Mul v4, v4 
+i7  Add i3, i6 
 ```
 
-然而上述提到的消除冗余只可能在冗余操作之间没有干扰项时才可能。当有个调用出现在`v1, v2`之间时，我们就需要非常谨慎的假设被调用者有权限访问`v0`，并且可以执行add、remove和更改属性的操作，这就让消除`v2`的访问或是`CheckMap`变为不可能。
+然而上述提到的消除冗余只可能在冗余操作之间没有干扰项时才可能。当有个调用出现在`v1, v2`之间时，我们就需要非常谨慎的假设被调用者有权限访问`v0`，并且可以执行add、remove和更改属性的操作，这就让消除`v2`的访问或是`CheckMap`变为不可能。
 
 # To be continued
 
