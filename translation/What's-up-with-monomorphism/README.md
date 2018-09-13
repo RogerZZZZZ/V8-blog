@@ -155,7 +155,7 @@ JS中的算术操作是`inherently typed`,比如 `a | 0`永远返回32位整数�
 - 减少启动延迟：优化编译器慢于无优化的编译器。意味着被优化的代码要被使用一定次数才有优化的意义
 - 它给了内敛缓存收集类型反馈的机会
 
-被书写JS的人们强调的一点是，JS没有包含足够的内部类型信息(`inherent type information`)来支持全部静态类型以及预编译。`JIT`不得不进行预测: JIT必须对它优化的代码中的用法和行为做出有根据的推测，然后生成在特定假设下的专门的代码。 换句话说编译器需要假设在需要优化的函数中会见到什么类型的对象。 幸运的是这恰好就是内联缓存收集的信息。
+被书写JS的人们强调的一点是，JS没有包含足够的内部类型信息(`inherent type information`)来支持全部静态类型以及预编译。`JIT`不得不进行预测: JIT必须对它优化的代码中的用法和行为做出有根据的推测，然后生成在特定假设下个性化的代码。 换句话说编译器需要假设在需要优化的函数中会见到什么类型的对象。 幸运的是这恰好就是内联缓存收集的信息。
 
 - 单态缓存说“我只见过类型A”
 - N维的多态缓存说”我只见过A1....An“
@@ -163,7 +163,7 @@ JS中的算术操作是`inherently typed`,比如 `a | 0`永远返回32位整数�
 
 ![type guard](https://github.com/RogerZZZZZ/V8-blog/blob/master/translation/What's-up-with-monomorphism/img/5.png)
 
-优化编译器查看IC收集来的信息，然后生成对应的`intermediate representation(IR)`。 IR指令通常比通常的JS操作更加底层以及明确。比如`.x` IC只看到`{x, y}`形状的对象，之后优化器会使用IR指令去对象中特定偏移量的地方读取属性，再用它加载`.x`。当然在任意对象上使用这样的指令是不安全的，所以优化器预先设置了一个类型哨兵(`type guard`)。类型哨兵在对象到达特定操作前检查他的形状(`shape of object`)，如果没有得到预期的对象，将不会在进行下去，而是会以未优化的代码继续运行。这个过程被称为去优化(`deoptimization`)。去优化的发生不仅仅只由类型哨兵产生，比如：算术操作只用于32位整数，如果计算结果溢出将会执行去优化，`arr[idx]`中的idx需要在其长度范围内，否则会因为idx越界，`arr[idx]`不存在导致去优化的发生。
+优化编译器查看IC收集来的信息，然后生成对应的`intermediate representation(IR)`。 IR指令通常比通常的JS操作更加底层以及明确。比如`.x` IC只看到`{x, y}`形状的对象，之后优化器会使用IR指令去对象中特定偏移量的地方读取属性，再用它加载`.x`。当然在任意对象上使用这样的指令是不安全的，所以优化器预先设置了一个类型哨兵(`type guard`)。类型哨兵在对象到达特定操作前检查他的形状(`shape of object`)，如果没有得到预期的对象，将不会在进行下去，而是会以未优化的代码继续运行。这个过程被称为逆优化(`deoptimization`)。逆优化的发生不仅仅只由类型哨兵产生，比如：算术操作只用于32位整数，如果计算结果溢出将会执行逆优化，`arr[idx]`中的idx需要在其长度范围内，否则会因为idx越界，`arr[idx]`不存在导致逆优化的发生。
 
 ![deoptimization](https://github.com/RogerZZZZZ/V8-blog/blob/master/translation/What's-up-with-monomorphism/img/6.png)
 
@@ -174,7 +174,7 @@ JS中的算术操作是`inherently typed`,比如 `a | 0`永远返回32位整数�
 每个操作会有任意不可知的副作用，因为它是通用的，并且实现所有语义 | 代码的特殊化或是消除不可预见性，副作用被很好的定义(通过偏移量读取属性没有副作用)
 每个操作都是独立的，没有信息的交流 | 操作被分解为更底层的IR指令，之后都将会被一起优化，这就给发现和消除冗余提供了机会
 
-实际上根据类型反馈构建明确的IR只是优化流程中的第一步。一旦IR准备就绪，编译器就会运行多次来寻找不变量和消除冗余。 在这一部运行过程的分析是过程中的(`intraprocedural`)，编译器也被强制在每次执行中假设最差的任意副作用。我们需要知道的是通常非专门化的操作本质都是调用自己。比如 `+` 求值就是调用`valueOf`以及调用getter方法来获得`o.x`属性访问。这就意味着那些由于某些原因特化失败的优化器将会阻塞接下来的优化进程。
+实际上根据类型反馈构建明确的IR只是优化流程中的第一步。一旦IR准备就绪，编译器就会运行多次来寻找不变量和消除冗余。 在这一部运行过程的分析是过程中的(`intraprocedural`)，编译器也被强制在每次执行中假设最差的任意副作用。我们需要知道的是通常非个性化的操作本质都是调用自己。比如 `+` 求值就是调用`valueOf`以及调用getter方法来获得`o.x`属性访问。这就意味着那些由于某些原因特化失败的优化器将会阻塞接下来的优化进程。
 
 ![eliminate redundancies](https://github.com/RogerZZZZZ/V8-blog/blob/master/translation/What's-up-with-monomorphism/img/7.png)
 
@@ -206,7 +206,72 @@ i6  Mul v4, v4
 i7  Add i3, i6 
 ```
 
-然而上述提到的消除冗余只可能在冗余操作之间没有干扰项时才可能。当有个调用出现在`v1, v2`之间时，我们就需要非常谨慎的假设被调用者有权限访问`v0`，并且可以执行add、remove和更改属性的操作，这就让消除`v2`的访问或是`CheckMap`变为不可能。
+然而上述提到的消除冗余只可能在冗余操作之间没有干扰项时才可能。当有个调用出现在`v1, v2`之间时，我们就需要非常谨慎的假设被调用者有权限访问`v0`，并且可以执行add、remove和更改属性的操作，这就让消除`v2`或是`CheckMap`的访问变为不可能。
+
+现在我们队优化编译器有了基本的理解，知道了它喜欢什么(个性化的操作指令)，不喜欢什么(调用以及一般操作指令)，现在剩下一个需要讨论的东西: 优化编译器对非单态操作的处理。
+
+如果操作不是单态的，显然优化编译器就不会使用我们之前讨论过得简单个性化准则`type-guard + specialized-op`。它也同时不能为类型哨兵选择一个单独的类型，以及选择一个单独个性化操作。内联缓存告诉编译器，这个操作会见到不同类型的值，所以选择其中一个而忽视其他会带来有风险的逆优化，这是非常不可取的。取而代之的是优化编译器会尝试构建一个决策树。比如说一个看到了A,B,C三种形状的多态属性访问`o.x`将会被如下展开(下面为伪代码 - 优化编译器将会构建一个CFG`Control flow graph, 控制流图`):
+
+```javascript
+var o_x
+if ($GetShape(o) === A) {
+  o_x = $LoadByOffset(o, offset_A_x)
+} else if ($GetShape(o) === B) {
+  o_x = $LoadByOffset(o, offset_B_x)
+} else if ($GetShape(o) === C) {
+  o_x = $LoadByOffset(o, offset_C_x)
+} else {
+  // o.x saw only A, B, C so we assume
+  // there can be *nothing* else
+  $Deoptimize()
+}
+// Note: at this point we can only say that
+// o is either A, B or C. But we lost information
+// which one.
+```
+
+有一件事需要注意的是多态访问相比单态访问来说缺少了有用的属性。个性化的访问在遇到干扰项之前我们都可以保证这个对象只有特定的一种形状。这就允许我们在单态访问之间去除冗余。多态访问则只能保证对象的形状有可能是A,B,C中的一个，因此我们不能使用这个信息来消除相似多态访问中的冗余，最多我们只可以消除最后的条件比较以及逆优化模块，但是V8并不会这么做。
+
+然而当属性位于任意形状对象的相同位置时，V8会构建了一个更加有效率的IR。下面的例子就是使用一个多态类型哨兵而不是决策树。
+
+```javascript
+// Check that o's shape is one of A, B or C - deoptimize otherwise.
+$TypeGuard(o, [A, B, C])
+// Load property. It's in the same place in A, B and C.
+var o_x = $LoadByOffset(o, offset_x)
+```
+
+这个IR对于冗余消除有一个重要的好处就是，如果在两个`$TypeGuard(o, [A, B, C])`指令中间没有出现干扰项，那么第二个指令将会成为冗余项，和单态的例子相同。
+
+如果类型反馈告诉优化编译器，属性访问看到了不同的形状，接下来优化编译器将会考虑在行内处理，之后优化器将会建一个以普通操作结尾的稍微不同的决策树，而不是执行逆优化过程。
+
+```javascript
+var o_x
+if ($GetShape(o) === A) {
+  o_x = $LoadByOffset(o, offset_A_x)
+} else if ($GetShape(o) === B) {
+  o_x = $LoadByOffset(o, offset_B_x)
+} else if ($GetShape(o) === C) {
+  o_x = $LoadByOffset(o, offset_C_x)
+} else {
+  // We know that o.x is too polymorphic (megamorphic).
+  // to avoid deoptimizations leave escape hatch to handle
+  // arbitrary object:
+  o_x = $LoadPropertyGeneric(o, 'x')
+  //    ^^^^^^^^^^^^^^^^^^^^ arbitrary side effects
+}
+// Note: at this point nothing is known about
+// o's shape and furthermore arbitrary
+// side-effects could have happened.
+```
+
+最后有几种情况，优化编译器会完全放弃个性化操作：
+
+- 如果它不知道如何高效地进行优化，个性化
+- 操作是多态的，并且优化器不知道如何根据这个操作正确地构建一个决策树。（比如，V8之前有过的一个例子，`arr[i]`中的多态键访问，现在已经不存在）
+- 操作没有任何类型反馈用于个性化（操作永远不会执行，垃圾回收清空了类型反馈等）
+
+在上面的情况下（很小概率），优化器就会输出带有一个普通的变量的IR。
 
 # To be continued
 
