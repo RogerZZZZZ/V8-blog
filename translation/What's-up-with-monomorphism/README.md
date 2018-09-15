@@ -273,5 +273,178 @@ if ($GetShape(o) === A) {
 
 在上面的情况下（很小概率），优化器就会输出带有一个普通的变量的IR。
 
+
+### 性能影响
+
+让我们来总结我们学到的内容：
+
+- 单态操作是最简单被个性化的，也同时给优化器最有用的信息以及更加长远的优化可能。
+- 适量的多态操作需要一个多态类型哨兵或者在最坏的情况下一个决策树，但都慢于单态的情况。
+  - 决策树使操作流程更加复杂，也让优化器更加难地传递类型和消除冗余。依赖内存的条件跳转组成了这些决策树，而当这些决策树存在于一些循环中的时候将会是一件坏消息。
+  -  多态类型哨兵不会多度地阻碍类型流，也允许一些冗余的消除。但每个多态类型哨兵还是在一定程度上慢于单态类型哨兵(那些只检查一种类型的)。一个多态类型哨兵对性能的影响取决于你的CPU对条件分支的处理能力好坏。
+- 高多态操作完全没有个性化，最终也会变为一个普通的操作在优化IR中作为一部分被触发。这个普通操作是一个调用，其包含所有对于优化和原始CPU性能的坏结果。
+
+看看这篇文章[this microbenchmark](https://jsperf.com/monomorphism-vs-polymorphism/11)，试图捕捉所有对一个属性访问的情况之间的差别。带有属性偏移量的单态，多态（需要多态类型哨兵），带有不同属性偏移量的多态（需要决策树）以及megamorphic.
+
+### 未讨论的内容
+
+我有意的在写文章的时候忽视了一些实现上的细节，为的是不让文章过于的枯燥。
+
+#### 形状(Shapes)
+
+我们没有讨论过形状(也被称为隐藏类)是怎么被表示，计算以及依附到对象上的。可以查看我关于内联缓存的[文章](https://mrale.ph/blog/2012/06/03/explaining-js-vms-in-js-inline-caches.html)，以及以下我们演讲，比如[AWP2014](https://mrale.ph/talks/awp2014/#/26)来得知一些基本概念。
+
+我们需要知道的的一件重要的事是，在Javascript虚拟机中形状的概念是一个试探性的近似值(`heuristical approximation`)。它是一个去动态估计程序中隐藏的静态结构的尝试。人们眼中形状相同的东西，对于虚拟机来说可能就不同。
+
+```javascript
+function A() { this.x = 1 }
+function B() { this.x = 1 }
+
+var a = new A,
+    b = new B,
+    c = { x: 1 },
+    d = { x: 1, y: 1 }
+
+delete d.y
+// a, b, c, d all have DIFFERENT SHAPES for V8
+```
+
+JS对象的不固定性(`Fluffy dictionary nature` - 理解为可以随意的添加属性)也同样会让偶然创建一个多态变得容易。
+
+```javascript
+function A() {
+  this.x = 1;
+}
+
+var a = new A(), b = new A(); // same shape
+
+if (something) {
+  a.y = 2;  // shape of a no longer matches b.
+}
+```
+
+#### 故意的多态
+
+即使你的编程语言限制你的从严格的类中创建固定的形状的实例（例如Java, C#, Dart, C++等），你也可以写出多态的代码：
+
+> JVMs也是用IC来优化`invokeinterface` 和 `invokevirtual` 的调用
+
+```java
+interface Base {
+  void doX();
+}
+
+class A implements Base {
+  void doX() { }
+}
+
+class B implements Base {
+  void doX() { }
+}
+
+void handle(Base obj) {
+  obj.foo();
+}
+
+handle(new A());
+handle(new B());
+// obj.foo() callsite is polymorphic
+```
+
+抽象机制让你可以写接口的不同实现，强类型的编程语言中的多态也存在我们上面讨论的相似的性能影响。
+
+#### 不是所有的缓存都相同
+
+最好记住的是一些缓存不是基于形状的，也许相比其他缓存来说有更少的存储空间。举例来说，与函数调用相关的缓存是未初始化的，多态或是megamorphic中也不存在中间的多态状态。与其缓存函数与调用无关的形状，我们选择存下调用对象，即函数本身。
+
+```javascript
+function inv(cb) {
+  return cb(0)
+}
+
+function F(v) { return v }
+function G(v) { return v + 1 }
+
+inv(F)
+// inline cache is monomorpic, points to F
+inv(G)
+// inline cache is megamorphic
+```
+
+如何当`cb(...)`调用的内联缓存是单态时`inv`被优化，接下来优化编译器将会潜在的内联这次调用(这将会对一些频繁被调用的小函数很重要)。但当缓存是megamorphic时，优化器不会内联任何东西(它不知道缓存什么，因为已经不存在单一的目标了)，而是在IR中留下一个普通的调用操作。
+
+这与方法调用表达式`o.m(...)`(处理方法类似于属性访问)形成对比。方法调用站点中的内联缓存在单态状态和megamorphic状态之间存在多态状态。V8有能力在单态，多态以及megamorphc站点中进行内联，以及与对待属性的相同方式构建IR，在内联函数主体之前在决策树或者单个多态类型哨兵中选择一个。这其中有一个限制，对于V8，如果需要内联方法调用，那它需要成为隐藏类中的一部分。
+
+> 实际上`o.m(...)`将会编译为两个IC，一个为`LoadIC`，它负责加载属性，另一个为`CallIC`，它负责用合适的接收器和参数来触发加载的属性。`CallIC`与上述的`cb(...)`为同一种内联缓存。它只有能力去记录单态和megamorphic状态，这就是为什么它的状态会在优化方法执行的时候被忽略，而只有属性加载的IC状态会被使用。
+
+```javascript
+function inv(o) {
+  return o.cb(0)
+}
+
+var f = {
+  cb: function F(v) { return v },
+};
+
+var g = {
+  cb: function G(v) { return v + 1 },
+};
+
+inv(f)
+inv(f)
+// here inline cache is monomorpic, have seen only objects with
+// a shape like f.
+inv(g)
+// here inline cache is polymorphic, seen objects with two different
+// shapes: like f and like g
+```
+
+你也许会惊讶的发现`f`和`g`是不同形状的。这发生的原因是当我们将一个函数赋值到一个属性上时，V8会尝试（如果可能）将它附加在对象的隐藏类上，即形状，而不是将它直接的存储在对象上。在这个例子中，`f`有类似`{cb: F}`的形状，即形状本身指向了闭包。在我们之前的例子中，我们只知道形状简单的声明了属性存在在一个特定的偏移量上，然而这个隐藏类也捕捉了属性的值。这就让V8中的隐藏类更加接近于Java, C++中类的概念，而类本质就是属性和方法的集合。
+
+当然如果你之后用一个不同的方法复写了这个函数属性，V8会决定这不像一个类方法，然后切换到一个隐藏类去反射它。
+
+```javascript
+var f = {
+  cb: function F(v) { return v },
+};
+
+// Shape of f is {cb: F}
+
+f.cb = function H(v) { return v - 1 }
+
+// Shape of f is {cb: *}
+```
+
+总之关于V8如何构建和维护隐藏类是非常值得用大篇幅来介绍的。
+
+#### 表示属性的路径
+
+到现在，IC关于属性`o.x`好像是一个字典匹配去寻找属性的偏移，类似`Dictionary<Shape, int>`，然而这样的表示是非常难以使用的。属性可以存在于属性链中的任意对象中或者成为`accessor property`(有getter/setter)，这有一个很有趣的现象是在某种意义上， `accessor property`比普通的数据类型更加通用。
+
+举例`o = {x: 1}`可以被认为是带有`acceesor property x`的一个对象，`x`有一个getter/setter会使用V8的内部函数(`intrinics`)去访问一个内部的隐藏插槽。
+
+```javascript
+// pseudo-code reimagining o = { x: 1 }
+var o = {
+  get x () {
+    return $LoadByOffset(this, offset_of_x)
+  },
+  set x (value) {
+    $StoreByOffset(this, offset_of_x, value)
+  }
+  // both getter and setter are generated internally by VM
+  // and are invisible to normal JS code.
+};
+$StoreByOffset(this, offset_of_x, 1)
+```
+
+现在我们更清楚IC其实更像`Dictionary<Shape, Function>`。这样的IC表示会让优化案例不可能使用上述过度简单的表示去覆盖(原型链上的属性，accessor properties以及甚至于ES6 中的Proxy Objects)。
+
+#### Premonomorphic state 前单态状态
+
+在V8中实际上还有一个被称为前单态的状态在未初始化`uninitialized`以及单态之间。它的存在是为了避免只为IC编译`IC stubs`(理解为存根，测试残段)一次。我决定不讨论这个状态，因为它模糊不清的实现细节。
+
+
+
 # To be continued
 
