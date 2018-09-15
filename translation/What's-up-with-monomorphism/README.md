@@ -290,7 +290,7 @@ if ($GetShape(o) === A) {
 
 我有意的在写文章的时候忽视了一些实现上的细节，为的是不让文章过于的枯燥。
 
-#### 形状(Shapes)
+#### 形状(Shapes) - 隐藏类
 
 我们没有讨论过形状(也被称为隐藏类)是怎么被表示，计算以及依附到对象上的。可以查看我关于内联缓存的[文章](https://mrale.ph/blog/2012/06/03/explaining-js-vms-in-js-inline-caches.html)，以及以下我们演讲，比如[AWP2014](https://mrale.ph/talks/awp2014/#/26)来得知一些基本概念。
 
@@ -444,7 +444,14 @@ $StoreByOffset(this, offset_of_x, 1)
 
 在V8中实际上还有一个被称为前单态的状态在未初始化`uninitialized`以及单态之间。它的存在是为了避免只为IC编译`IC stubs`(理解为存根，测试残段)一次。我决定不讨论这个状态，因为它模糊不清的实现细节。
 
+### 最后关于性能上的一些建议
 
+最好的建议藏在了Dale Carnegie的书`How to stop Worrying and Start Living`的书名中。
 
-# To be continued
+担心多态的发生通常来说都是无用的，而是去将你的代码以现实的数据集进行基准，为一些热点（常使用的代码段）去定制(`profile it for hotspots`)，如果这和JS相关，检查优化编译器输出的IR。
 
+如果你看到名为`XYZGeneric`或者任何被红色`changes[*]`的标记在你有限的循环中间时。那么你就需要开始担心了。
+
+![IR operation](https://github.com/RogerZZZZZ/V8-blog/blob/master/translation/What's-up-with-monomorphism/img/8.png)
+
+## Done
