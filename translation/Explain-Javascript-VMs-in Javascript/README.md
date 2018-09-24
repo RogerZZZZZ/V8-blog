@@ -277,56 +277,49 @@ Klass.prototype = {
  ROOT_KLASS = new Klass("fast");
 
 function Table() {
-  // All tables start from the fast empty root hidden class and form 
-  // a single tree. In V8 hidden classes actually form a forest - 
-  // there are multiple root classes, e.g. one for each constructor. 
-  // This is partially due to the fact that hidden classes in V8 
-  // encapsulate constructor specific information, e.g. prototype 
-  // poiinter is actually stored in the hidden class and not in the 
-  // object itself so classes with different prototypes must have 
-  // different hidden classes even if they have the same structure.
-  // However having multiple root classes also allows to evolve these
-  // trees separately capturing class specific evolution independently.
+  // 所有的tables开始于快速的根隐藏类，开始于一棵简单的树。在V8中隐藏类实际上开始于一个 
+  // 森林 - 他们有很多根类，比如说：每一个构造器都是一个根类。但这只是部分，因为V8中的隐
+  // 藏类封装了构造器的信息，比如原型的指针实际就存储在隐藏类中，而不是在对象自己中，所以
+  // 不同原型的类必须有不同的隐藏类即使它们有同样的结构，然而有多根类的结构也同样允许独立
+  // 的发展这些树，然而各自捕捉类的特定进化。
   this.klass = ROOT_KLASS;
-  this.properties = [];  // Array of named properties: 'x','y',...
-  this.elements = [];  // Array of indexed properties: 0, 1, ...
-  // We will actually cheat a little bit and allow any int32 to go here,
-  // we will also allow V8 to select appropriate representation for
-  // the array's backing store. There are too many details to cover in
-  // a single blog post :-)
+  this.properties = [];  // 命名属性的数组 'x','y',...
+  this.elements = [];  // 属性下标的集合: 0, 1, ...
+  // 我们实际有点作弊，因为允许任何int32的数据存入，我们也允许V8来选择数组存储的合适表示
+  // 因为太多的细节无法放到一篇文章中。
 }
 
 Table.prototype = {
   load: function (key) {
     if (this.klass.kind === "slow") {
-      // Slow class => properties are represented as Map.
+      // Slow class => 属性将会被以Map的形式表示
       return this.properties.get(key);
     }
 
-    // This is fast table with indexed and named properties only.
-    if (typeof key === "number" && (key | 0) === key) {  // Indexed property.
+    // 这是一个fast table，只带有索引和命名的属性
+    if (typeof key === "number" && (key | 0) === key) {  // 带有索引的属性.
       return this.elements[key];
-    } else if (typeof key === "string") {  // Named property.
+    } else if (typeof key === "string") {  // 带有命名的属性.
       var idx = this.findPropertyForRead(key);
       return (idx >= 0) ? this.properties[idx] : void 0;
     }
 
-    // There can be only string&number keys on fast table.
+    // 在fast table中只能有string&number的keys
     return void 0;
   },
 
   store: function (key, value) {
     if (this.klass.kind === "slow") {
-      // Slow class => properties are represented as Map.
+      // Slow class => 属性将会被以Map的形式表示
       this.properties.set(key, value);
       return;
     }
 
-    // This is fast table with indexed and named properties only.
-    if (typeof key === "number" && (key | 0) === key) {  // Indexed property.
+    // 这是一个fast table，只带有索引和命名的属性
+    if (typeof key === "number" && (key | 0) === key) {  // 带有索引的属性.
       this.elements[key] = value;
       return;
-    } else if (typeof key === "string") {  // Named property.
+    } else if (typeof key === "string") {  // 带有命名的属性.
       var index = this.findPropertyForWrite(key);
       if (index >= 0) {
         this.properties[index] = value;
@@ -338,38 +331,38 @@ Table.prototype = {
     this.store(key, value);
   },
 
-  // Find property or add one if possible, returns property index
-  // or -1 if we have too many properties and should switch to slow.
+  // 寻找属性或是可能的话添加一个，之后返回属性的索引或者是-1(当我们有太多属性时，之后
+  // 切换到slow模式)
   findPropertyForWrite: function (key) {
-    if (!this.klass.hasProperty(key)) {  // Try adding property if it does not exist.
-      // To many properties! Achtung! Fast case kaput.
+    if (!this.klass.hasProperty(key)) {  // 当属性不存在时添加它.
+      // 太多属性，退出fast模式
       if (this.klass.keys.length > 20) return -1;
 
-      // Switch class to the one that has this property.
+      // 切换到有这个属性的类
       this.klass = this.klass.addProperty(key);
       return this.klass.getIndex(key);
     }
 
     var desc = this.klass.getDescriptor(key);
     if (desc instanceof Transition) {
-      // Property does not exist yet but we have a transition to the class that has it.
+      // 属性不存在，但是我们有一个transition到一个有这个属性的类
       this.klass = desc.klass;
       return this.klass.getIndex(key);
     }
 
-    // Get index of existing property.
+    // 得到这个属性的索引
     return desc.index;
   },
 
-  // Find property index if property exists, return -1 otherwise.
+  // 如果存在找到这个属性的索引，否则返回-1
   findPropertyForRead: function (key) {
     if (!this.klass.hasProperty(key)) return -1;
     var desc = this.klass.getDescriptor(key);
-    if (!(desc instanceof Property)) return -1;  // Here we are not interested in transitions.
+    if (!(desc instanceof Property)) return -1;  // 这里我们不关心transition
     return desc.index;
   },
 
-  // Copy all properties into the Map and switch to slow class.
+  // 将所有的属性复制到一个map中，然后切换成slow
   convertToSlow: function () {
     var map = new Map;
     for (var i = 0; i < this.klass.keys.length; i++) {
@@ -434,12 +427,10 @@ function MakeArrayOfPoints(N) {
   var m = -1;
   for (var i = 0; i <= N; i++) {
     m = m * -1;
-    // Now we are also distinguishing between expressions x[p] and x.p.
-    // The fist one is called keyed load/store and the second one is called
-    // named load/store.
-    // The main difference is that named load/stores use a fixed known
-    // constant string key and thus can be specialized for a fixed property
-    // offset.
+    // 现在我们也能区分表达式x[p]以及x.p。 第一个被称为键控load/store，而第二个被称为
+    // 命名的load/store。
+    // 主要的区别在于命名的load/store使用一个固定已知不变的string键，所以可以被优化为
+    // 一个固定的属性偏移
     KEYED_STORE$2(array, i, MakePoint(m * i, m * -i), 2);
   }
   STORE$3(array, 'n', N, 3);
@@ -468,8 +459,7 @@ function CheckResults(sum) {
 function NAMED_LOAD_MISS(t, k, ic) {
   var v = LOAD(t, k);
   if (t.klass.kind === "fast") {
-    // Create a load stub that is specialized for a fixed class and key k and
-    // loads property from a fixed offset.
+    // 为一个固定的类和键k创建一个load stub，之后可以从一个固定的偏移位置读取属性。
     var stub = CompileNamedLoadFastProperty(t.klass, k);
     PatchIC("LOAD", ic, stub);
   }
@@ -482,9 +472,8 @@ function NAMED_STORE_MISS(t, k, v, ic) {
   var klass_after = t.klass;
   if (klass_before.kind === "fast" &&
       klass_after.kind === "fast") {
-    // Create a store stub that is specialized for a fixed transition between classes
-    // and a fixed key k that stores property into a fixed offset and replaces
-    // object's hidden class if necessary.
+    // 为一个类之间固定的transition和固定的键k个性化地创建一个store stub，在固定的
+    // 偏移位置存储属性，在必要的时候也替换对象的隐藏类
     var stub = CompileNamedStoreFastProperty(klass_before, klass_after, k);
     PatchIC("STORE", ic, stub);
   }
@@ -493,9 +482,8 @@ function NAMED_STORE_MISS(t, k, v, ic) {
 function KEYED_LOAD_MISS(t, k, ic) {
   var v = LOAD(t, k);
   if (t.klass.kind === "fast" && (typeof k === 'number' && (k | 0) === k)) {
-    // Create a stub for the fast load from the elements array.
-    // Does not actually depend on the class but could if we had more complicated
-    // storage system.
+    // 为快速存储在元素数组中创建一个stub
+    // 实际上不依赖于类，但如果我们有更复杂的存储系统的话也可以依赖类
     var stub = CompileKeyedLoadFastElement();
     PatchIC("KEYED_LOAD", ic, stub);
   }
@@ -505,59 +493,58 @@ function KEYED_LOAD_MISS(t, k, ic) {
 function KEYED_STORE_MISS(t, k, v, ic) {
   STORE(t, k, v);
   if (t.klass.kind === "fast" && (typeof k === 'number' && (k | 0) === k)) {
-    // Create a stub for the fast store into the elements array.
-    // Does not actually depend on the class but could if we had more complicated
-    // storage system.
+    // 为快速存储在元素数组中创建一个stub
+    // 实际上不依赖于类，但如果我们有更复杂的存储系统的话也可以依赖类
     var stub = CompileKeyedStoreFastElement();
     PatchIC("KEYED_STORE", ic, stub);
   }
 }
 
 function PatchIC(kind, id, stub) {
-  this[kind + "$" + id] = stub;  // non-strict JS funkiness: this is global object.
+  this[kind + "$" + id] = stub;  // 不严格的JS写法，这是一个全局对象
 }
 
 function CompileNamedLoadFastProperty(klass, key) {
-  // Key is known to be constant (named load). Specialize index.
+  // 键被认为是一个常量 (命名的读取)，特定的索引
   var index = klass.getIndex(key);
 
   function KeyedLoadFastProperty(t, k, ic) {
     if (t.klass !== klass) {
-      // Expected klass does not match. Can't use cached index.
-      // Fall through to the runtime system.
+      // 期望的kclass没有匹配上，不能够使用已缓存的索引
+      // 回到运行系统中
       return NAMED_LOAD_MISS(t, k, ic);
     }
-    return t.properties[index];  // Veni. Vidi. Vici.
+    return t.properties[index];
   }
 
   return KeyedLoadFastProperty;
 }
 
 function CompileNamedStoreFastProperty(klass_before, klass_after, key) {
-  // Key is known to be constant (named load). Specialize index.
+  // 键被认为是一个常量 (命名的读取)，特定的索引
   var index = klass_after.getIndex(key);
 
   if (klass_before !== klass_after) {
-    // Transition happens during the store.
-    // Compile stub that updates hidden class.
+    // 在存储过程中发生transition
+    // 编译更新隐藏类的stub
     return function (t, k, v, ic) {
       if (t.klass !== klass_before) {
-        // Expected klass does not match. Can't use cached index.
-        // Fall through to the runtime system.
+        // 期望的kclass没有匹配上，不能够使用已缓存的索引
+        // 回到运行系统中
         return NAMED_STORE_MISS(t, k, v, ic);
       }
-      t.properties[index] = v;  // Fast store.
+      t.properties[index] = v;  // 快速存储.
       t.klass = klass_after;  // T-t-t-transition!
     }
   } else {
-    // Write to an existing property. No transition.
+    // 写一个存在的属性，无transition
     return function (t, k, v, ic) {
       if (t.klass !== klass_before) {
-        // Expected klass does not match. Can't use cached index.
-        // Fall through to the runtime system.
+        // 期望的kclass没有匹配上，不能够使用已缓存的索引
+        // 回到运行系统中
         return NAMED_STORE_MISS(t, k, v, ic);
       }
-      t.properties[index] = v;  // Fast store.
+      t.properties[index] = v;  // 快速存储.
     }
   }
 }
@@ -566,8 +553,8 @@ function CompileNamedStoreFastProperty(klass_before, klass_after, key) {
 function CompileKeyedLoadFastElement() {
   function KeyedLoadFastElement(t, k, ic) {
     if (t.klass.kind !== "fast" || !(typeof k === 'number' && (k | 0) === k)) {
-      // If table is slow or key is not a number we can't use fast-path.
-      // Fall through to the runtime system, it can handle everything.
+      // 如果table是slow模式，或者键不是number，则不能使用快速路径
+      // 回到运行系统，它能处理一切
       return KEYED_LOAD_MISS(t, k, ic);
     }
     return t.elements[k];
@@ -579,8 +566,8 @@ function CompileKeyedLoadFastElement() {
 function CompileKeyedStoreFastElement() {
   function KeyedStoreFastElement(t, k, v, ic) {
     if (t.klass.kind !== "fast" || !(typeof k === 'number' && (k | 0) === k)) {
-      // If table is slow or key is not a number we can't use fast-path.
-      // Fall through to the runtime system, it can handle everything.
+      // 如果table是slow模式，或者键不是number，则不能使用快速路径
+      // 回到运行系统，它能处理一切
       return KEYED_STORE_MISS(t, k, v, ic);
     }
     t.elements[k] = v;
@@ -590,7 +577,7 @@ function CompileKeyedStoreFastElement() {
 }
 ```
 
-虽然有很多的代码，但是都十分的简单，上面也给出的很全的解释：IC观察，stub的编译器/工厂生层专用的stub[细心地读者会发现我从一开始就用快速模式来初始化所有键来存储IC，或是一旦进入就切换到快速模式]。
+虽然有很多的代码，但是都十分的简单，上面也给出的很全的解释：IC观察，stub的编译器/工厂生层生成的stub[细心地读者会发现我从一开始就用快速模式来初始化所有键来存储IC，或是一旦进入就切换到快速模式]。
 
 如果我们将所有代码合并，并重新运行我们的`benchmark`，我们就会欣喜的发现：
 
@@ -609,4 +596,4 @@ function CompileKeyedStoreFastElement() {
 
 我希望明天或者是一周以后你会告诉你的同事，为什么有条件的在代码某个地方对对象添加性能会影响触摸这些对象的其他“热函数”循环的性能。因为你知道隐藏类发生了改变。
 
-## CONTINUED
+## DONE
