@@ -200,4 +200,413 @@ STORE(os, 'clock', function () {
 
 对于高效的table，比如我们使用的结构化数据需要像C语言中的`structs`一样：一些在固定偏移位置的域的序列。 与table相同的被用作为array：我们想要一些数字属性存于数组中。但十分明显的是：不是所有的table都适用这样的表示方法：一些实际上被使用为table，要不包含非字符串非数字的keys，要不包含很多用字符串命名的属性。不幸的是我们不能执行任何高代价的类型推断，我们只能去发现一种在程序运行时在每个table之后的一种结构，并创建和改变它们。幸运的是有一种有名的技术允许我们这样做，这个技术被称为隐藏类(`hidden classes`)
 
+隐藏类之后的概念可以归结为两件简单的事：
+
+- 运行系统让每一个对象都关联一个隐藏类，就像Java虚拟机让每一个对象关联一个`java.lang.Class`的实例；
+- 如果一个对象的结构改变了，运行系统就会创建或者寻找一个能够匹配新结构的隐藏类，之后将它附给这个对象。
+
+隐藏类有一个非常重要的功能：它们允许虚拟机通过简单的比对现在结构与缓存隐藏类的区别，来检查假设的正确性。这正是内联缓存所需要的。让我们为我们的准Lua运行环境来实现简单的隐藏类。每个隐藏类的实质都是一个属性描述符的集合，在集合中每个描述符不是一个真实属性就是一个从没有某些属性的类指向具有此属性的类的转换。
+
+```javascript
+function Transition(klass) {
+  this.klass = klass;
+}
+
+function Property(index) {
+  this.index = index;
+}
+
+function Klass(kind) {
+  // Classes are "fast" if they are C-struct like and "slow" is they are Map-like.
+  this.kind = kind;
+  this.descriptors = new Map;
+  this.keys = [];
+}
+```
+
+转换的存在是为了让以相同方式创建的对象之间可以共享隐藏类：如果你有两个对象共享隐藏类，当你给它们添加相同属性时，你不希望得到不同的隐藏类。
+
+```javascript
+Klass.prototype = {
+  // 创建一个之前不存在且带有一个新属性的隐藏类
+  // 当前的隐藏类
+  addProperty: function (key) {
+    var klass = this.clone();
+    klass.append(key);
+    // 让隐藏类和transition进行连接来实现共享
+    // this == add property key ==> klass
+    this.descriptors.set(key, new Transition(klass));
+    return klass;
+  },
+
+  hasProperty: function (key) {
+    return this.descriptors.has(key);
+  },
+
+  getDescriptor: function (key) {
+    return this.descriptors.get(key);
+  },
+
+  getIndex: function (key) {
+    return this.getDescriptor(key).index;
+  },
+
+  // 克隆一个有相同属性的隐藏类
+  // 在相同的偏移（但是没有任何的transitions）
+  clone: function () {
+    var klass = new Klass(this.kind);
+    klass.keys = this.keys.slice(0);
+    for (var i = 0; i < this.keys.length; i++) {
+      var key = this.keys[i];
+      klass.descriptors.set(key, this.descriptors.get(key));
+    }
+    return klass;
+  },
+
+  // 将真实属性添加到描述符中
+  append: function (key) {
+    this.keys.push(key);
+    this.descriptors.set(key, new Property(this.keys.length - 1));
+  }
+};
+```
+
+现在你可以让我们的tables更加灵活。
+
+```javascript
+ ROOT_KLASS = new Klass("fast");
+
+function Table() {
+  // All tables start from the fast empty root hidden class and form 
+  // a single tree. In V8 hidden classes actually form a forest - 
+  // there are multiple root classes, e.g. one for each constructor. 
+  // This is partially due to the fact that hidden classes in V8 
+  // encapsulate constructor specific information, e.g. prototype 
+  // poiinter is actually stored in the hidden class and not in the 
+  // object itself so classes with different prototypes must have 
+  // different hidden classes even if they have the same structure.
+  // However having multiple root classes also allows to evolve these
+  // trees separately capturing class specific evolution independently.
+  this.klass = ROOT_KLASS;
+  this.properties = [];  // Array of named properties: 'x','y',...
+  this.elements = [];  // Array of indexed properties: 0, 1, ...
+  // We will actually cheat a little bit and allow any int32 to go here,
+  // we will also allow V8 to select appropriate representation for
+  // the array's backing store. There are too many details to cover in
+  // a single blog post :-)
+}
+
+Table.prototype = {
+  load: function (key) {
+    if (this.klass.kind === "slow") {
+      // Slow class => properties are represented as Map.
+      return this.properties.get(key);
+    }
+
+    // This is fast table with indexed and named properties only.
+    if (typeof key === "number" && (key | 0) === key) {  // Indexed property.
+      return this.elements[key];
+    } else if (typeof key === "string") {  // Named property.
+      var idx = this.findPropertyForRead(key);
+      return (idx >= 0) ? this.properties[idx] : void 0;
+    }
+
+    // There can be only string&number keys on fast table.
+    return void 0;
+  },
+
+  store: function (key, value) {
+    if (this.klass.kind === "slow") {
+      // Slow class => properties are represented as Map.
+      this.properties.set(key, value);
+      return;
+    }
+
+    // This is fast table with indexed and named properties only.
+    if (typeof key === "number" && (key | 0) === key) {  // Indexed property.
+      this.elements[key] = value;
+      return;
+    } else if (typeof key === "string") {  // Named property.
+      var index = this.findPropertyForWrite(key);
+      if (index >= 0) {
+        this.properties[index] = value;
+        return;
+      }
+    }
+
+    this.convertToSlow();
+    this.store(key, value);
+  },
+
+  // Find property or add one if possible, returns property index
+  // or -1 if we have too many properties and should switch to slow.
+  findPropertyForWrite: function (key) {
+    if (!this.klass.hasProperty(key)) {  // Try adding property if it does not exist.
+      // To many properties! Achtung! Fast case kaput.
+      if (this.klass.keys.length > 20) return -1;
+
+      // Switch class to the one that has this property.
+      this.klass = this.klass.addProperty(key);
+      return this.klass.getIndex(key);
+    }
+
+    var desc = this.klass.getDescriptor(key);
+    if (desc instanceof Transition) {
+      // Property does not exist yet but we have a transition to the class that has it.
+      this.klass = desc.klass;
+      return this.klass.getIndex(key);
+    }
+
+    // Get index of existing property.
+    return desc.index;
+  },
+
+  // Find property index if property exists, return -1 otherwise.
+  findPropertyForRead: function (key) {
+    if (!this.klass.hasProperty(key)) return -1;
+    var desc = this.klass.getDescriptor(key);
+    if (!(desc instanceof Property)) return -1;  // Here we are not interested in transitions.
+    return desc.index;
+  },
+
+  // Copy all properties into the Map and switch to slow class.
+  convertToSlow: function () {
+    var map = new Map;
+    for (var i = 0; i < this.klass.keys.length; i++) {
+      var key = this.klass.keys[i];
+      var val = this.properties[i];
+      map.set(key, val);
+    }
+
+    Object.keys(this.elements).forEach(function (key) {
+      var val = this.elements[key];
+      map.set(key | 0, val);  // Funky JS, force key back to int32.
+    }, this);
+
+    this.properties = map;
+    this.elements = null;
+    this.klass = new Klass("slow");
+  }
+};
+```
+
+[我不会对上述的代码一行一行的解释，因为都是有注释的JS代码，而不是C++或是汇编...这都是由JS书写的。然而当你遇到困惑时也可以通过评论或是邮件的方式来问我]
+
+现在我们在运行系统中有了隐藏类，这允许我们能够快速检查对象结构，通过偏移量快速读取属性值。这些的存在也让我们能够实现内联缓存。编译器和运行系统还需要一些补充的方法(还记得我是怎么谈论虚拟机中不同部分是如何合作的吗？)。
+
+### 生成代码的拼凑被子 (Patchwork quilts of generated code)
+
+其中一种实现一个内联缓存的方法是将它一分为二：生成代码中可变的方法调用，以及可以被方法调用站点调用的`stubs`集合(生成的原生代码的小片段)。`stubs`(或是运行系统)本质上可以找到方法调用的站点: `stubs`只包含在特定假设下编译的快速路径，如果这些假设不适用于`stubs`看到的对象，则`stubs`会开始修改（修补）这个调用`stubs`的调用位置，以便让该位置适应新的环境。我们原生JS中的IC也包含两个部分：
+
+- 每个IC的全局变量将会被用来模拟可修改的调用指令。
+- 以及闭包将会代替`stubs`
+
+在原生代码中，V8通过检查栈中返回的的地址来修改IC站点。我们不能再纯JS种做这样的操作(`arguments.caller`没有足够的细粒度)，所以我们明确的传递IC的id到IC stub中。下面就是例子：
+
+```javascript
+// 初始时所有IC都是未初始化状态
+// 它们将会无法命中缓存，并且在运行系统中将会一直这样
+var STORE$0 = NAMED_STORE_MISS;
+var STORE$1 = NAMED_STORE_MISS;
+var KEYED_STORE$2 = KEYED_STORE_MISS;
+var STORE$3 = NAMED_STORE_MISS;
+var LOAD$4 = NAMED_LOAD_MISS;
+var STORE$5 = NAMED_STORE_MISS;
+var LOAD$6 = NAMED_LOAD_MISS;
+var LOAD$7 = NAMED_LOAD_MISS;
+var KEYED_LOAD$8 = KEYED_LOAD_MISS;
+var STORE$9 = NAMED_STORE_MISS;
+var LOAD$10 = NAMED_LOAD_MISS;
+var LOAD$11 = NAMED_LOAD_MISS;
+var KEYED_LOAD$12 = KEYED_LOAD_MISS;
+var LOAD$13 = NAMED_LOAD_MISS;
+var LOAD$14 = NAMED_LOAD_MISS;
+
+function MakePoint(x, y) {
+  var point = new Table();
+  STORE$0(point, 'x', x, 0);  // 最后一个数字是 IC 的 id: STORE$0 &rArr; id 为 0
+  STORE$1(point, 'y', y, 1);
+  return point;
+}
+
+function MakeArrayOfPoints(N) {
+  var array = new Table();
+  var m = -1;
+  for (var i = 0; i <= N; i++) {
+    m = m * -1;
+    // Now we are also distinguishing between expressions x[p] and x.p.
+    // The fist one is called keyed load/store and the second one is called
+    // named load/store.
+    // The main difference is that named load/stores use a fixed known
+    // constant string key and thus can be specialized for a fixed property
+    // offset.
+    KEYED_STORE$2(array, i, MakePoint(m * i, m * -i), 2);
+  }
+  STORE$3(array, 'n', N, 3);
+  return array;
+}
+
+function SumArrayOfPoints(array) {
+  var sum = MakePoint(0, 0);
+  for (var i = 0; i <= LOAD$4(array, 'n', 4); i++) {
+    STORE$5(sum, 'x', LOAD$6(sum, 'x', 6) + LOAD$7(KEYED_LOAD$8(array, i, 8), 'x', 7), 5);
+    STORE$9(sum, 'y', LOAD$10(sum, 'y', 10) + LOAD$11(KEYED_LOAD$12(array, i, 12), 'y', 11), 9);
+  }
+  return sum;
+}
+
+function CheckResults(sum) {
+  var x = LOAD$13(sum, 'x', 13);
+  var y = LOAD$14(sum, 'y', 14);
+  if (x !== 50000 || y !== -50000) throw new Error("failed x: " + x + ", y:" + y);
+}
+```
+
+上述变化再次不言自明： 每个属性输入id调用load/store来得到自己的IC。现在还剩一小步：去实现当没有匹配上`stubs`时，“stub 编译器”将会生成一个特殊的stubs:
+
+```javascript
+function NAMED_LOAD_MISS(t, k, ic) {
+  var v = LOAD(t, k);
+  if (t.klass.kind === "fast") {
+    // Create a load stub that is specialized for a fixed class and key k and
+    // loads property from a fixed offset.
+    var stub = CompileNamedLoadFastProperty(t.klass, k);
+    PatchIC("LOAD", ic, stub);
+  }
+  return v;
+}
+
+function NAMED_STORE_MISS(t, k, v, ic) {
+  var klass_before = t.klass;
+  STORE(t, k, v);
+  var klass_after = t.klass;
+  if (klass_before.kind === "fast" &&
+      klass_after.kind === "fast") {
+    // Create a store stub that is specialized for a fixed transition between classes
+    // and a fixed key k that stores property into a fixed offset and replaces
+    // object's hidden class if necessary.
+    var stub = CompileNamedStoreFastProperty(klass_before, klass_after, k);
+    PatchIC("STORE", ic, stub);
+  }
+}
+
+function KEYED_LOAD_MISS(t, k, ic) {
+  var v = LOAD(t, k);
+  if (t.klass.kind === "fast" && (typeof k === 'number' && (k | 0) === k)) {
+    // Create a stub for the fast load from the elements array.
+    // Does not actually depend on the class but could if we had more complicated
+    // storage system.
+    var stub = CompileKeyedLoadFastElement();
+    PatchIC("KEYED_LOAD", ic, stub);
+  }
+  return v;
+}
+
+function KEYED_STORE_MISS(t, k, v, ic) {
+  STORE(t, k, v);
+  if (t.klass.kind === "fast" && (typeof k === 'number' && (k | 0) === k)) {
+    // Create a stub for the fast store into the elements array.
+    // Does not actually depend on the class but could if we had more complicated
+    // storage system.
+    var stub = CompileKeyedStoreFastElement();
+    PatchIC("KEYED_STORE", ic, stub);
+  }
+}
+
+function PatchIC(kind, id, stub) {
+  this[kind + "$" + id] = stub;  // non-strict JS funkiness: this is global object.
+}
+
+function CompileNamedLoadFastProperty(klass, key) {
+  // Key is known to be constant (named load). Specialize index.
+  var index = klass.getIndex(key);
+
+  function KeyedLoadFastProperty(t, k, ic) {
+    if (t.klass !== klass) {
+      // Expected klass does not match. Can't use cached index.
+      // Fall through to the runtime system.
+      return NAMED_LOAD_MISS(t, k, ic);
+    }
+    return t.properties[index];  // Veni. Vidi. Vici.
+  }
+
+  return KeyedLoadFastProperty;
+}
+
+function CompileNamedStoreFastProperty(klass_before, klass_after, key) {
+  // Key is known to be constant (named load). Specialize index.
+  var index = klass_after.getIndex(key);
+
+  if (klass_before !== klass_after) {
+    // Transition happens during the store.
+    // Compile stub that updates hidden class.
+    return function (t, k, v, ic) {
+      if (t.klass !== klass_before) {
+        // Expected klass does not match. Can't use cached index.
+        // Fall through to the runtime system.
+        return NAMED_STORE_MISS(t, k, v, ic);
+      }
+      t.properties[index] = v;  // Fast store.
+      t.klass = klass_after;  // T-t-t-transition!
+    }
+  } else {
+    // Write to an existing property. No transition.
+    return function (t, k, v, ic) {
+      if (t.klass !== klass_before) {
+        // Expected klass does not match. Can't use cached index.
+        // Fall through to the runtime system.
+        return NAMED_STORE_MISS(t, k, v, ic);
+      }
+      t.properties[index] = v;  // Fast store.
+    }
+  }
+}
+
+
+function CompileKeyedLoadFastElement() {
+  function KeyedLoadFastElement(t, k, ic) {
+    if (t.klass.kind !== "fast" || !(typeof k === 'number' && (k | 0) === k)) {
+      // If table is slow or key is not a number we can't use fast-path.
+      // Fall through to the runtime system, it can handle everything.
+      return KEYED_LOAD_MISS(t, k, ic);
+    }
+    return t.elements[k];
+  }
+
+  return KeyedLoadFastElement;
+}
+
+function CompileKeyedStoreFastElement() {
+  function KeyedStoreFastElement(t, k, v, ic) {
+    if (t.klass.kind !== "fast" || !(typeof k === 'number' && (k | 0) === k)) {
+      // If table is slow or key is not a number we can't use fast-path.
+      // Fall through to the runtime system, it can handle everything.
+      return KEYED_STORE_MISS(t, k, v, ic);
+    }
+    t.elements[k] = v;
+  }
+
+  return KeyedStoreFastElement;
+}
+```
+
+虽然有很多的代码，但是都十分的简单，上面也给出的很全的解释：IC观察，stub的编译器/工厂生层专用的stub[细心地读者会发现我从一开始就用快速模式来初始化所有键来存储IC，或是一旦进入就切换到快速模式]。
+
+如果我们将所有代码合并，并重新运行我们的`benchmark`，我们就会欣喜的发现：
+
+```shell
+∮ d8 --harmony quasi-lua-runtime-ic.js points-ic.js
+117
+```
+
+相比于之前的实现，这次快了6倍。
+
+### JavaScript VM优化永远不会得出结论
+
+但愿在你读这部分时，上面的内容你都已经读过...我作为了一个JS开发者尝试着从一个不同的角度来看一些加强JS引擎的方法。我代码写的越多，越会感觉到这是一个盲人摸象的故事。给你一种望向深渊的感觉：V8有10中描述符，5种元素(加9中外部元素), `ic.cc`包含了绝大多数IC选择的逻辑，而这一部分代码就超过2500行，V8中的内联缓存有多于两种以上的状态(未初始化、预单态，单态，多态，通用状态未提到键控load/stores的内联缓存的特殊状态，或者是算术内联缓存的完全不同层次的状态)。`ia32-specific`手写内联缓存stub有超过5000行代码等等。这些数字只会随着时间的推移不断增加，V8学会区别/适应更多更多的对象结构。我现在甚至都没有触及到对象本身(`objects.cc` 1万3千行代码)，或是垃圾回收器，或是优化编译器。
+
+然而在可预见的未来我确信基本原理是不会改变的，而当他们改变了基本原理将会带来一次突破，也同时会“发出巨响”，你当然也会注意到。所以我认为这个关于尝试使用JS来书写和理解基本原理是十分十分重要的。
+
+我希望明天或者是一周以后你会告诉你的同事，为什么有条件的在代码某个地方对对象添加性能会影响触摸这些对象的其他“热函数”循环的性能。因为你知道隐藏类发生了改变。
+
 ## CONTINUED
