@@ -10,7 +10,7 @@
 
 - [Introducation to Speculative Optimization](https://github.com/RogerZZZZZ/V8-journeys/tree/master/translation/%08Introduction-to-Speculative-Optimization)
 - [“What’s up with monomorphism?”](https://github.com/RogerZZZZZ/V8-blog/tree/master/translation/What's-up-with-monomorphism)
-- [xplaining JavaScript VMs in JavaScript - Inline Caches](https://github.com/RogerZZZZZ/V8-blog/tree/master/translation/Explain-Javascript-VMs-in%20Javascript)
+- [Explaining JavaScript VMs in JavaScript - Inline Caches](https://github.com/RogerZZZZZ/V8-blog/tree/master/translation/Explain-Javascript-VMs-in%20Javascript)
 
 ## Todo Tasks
 
