@@ -7,13 +7,13 @@
 
 我用一个语言（或说是一个语言的子集）实现了虚拟机，而这个虚拟机同时也可以执行这种语言。如果我在大学中或是有一点空闲时间，我一定会致力于用Javascript来写Javascript的虚拟机。实际上这并不是一个独特的项目，因为来自世界各地的人们已经使用`Tachyon`做到了。但是我还是有一些想法：
 
-![1](https://github.com/RogerZZZZZ/V8-blog/blob/master/Explain-Javascript-VMs-in%20Javascript/img/1.png)
+![1](https://github.com/RogerZZZZZ/V8-blog/blob/master/Explain-Javascript-VMs-in-Javascript/img/1.png)
 
 我想要帮助JS开发者理解JS引擎是怎么工作的，我想理解一个你使用的工具能够最大程度的帮助到你。这样更多的人就不会将JS虚拟机看做是一个神秘的黑盒。
 
 我需要说的是在解释代码的内部运行原理以及如何写出高效的代码这件事上我并不孤独。来自全世界的很多人都在做相同的事情，但是我觉有一个问题一直限制开发人员高效的吸收这些知识。我们在用一种错误的方式运输这些知识。我也因此而内疚：
 
-![2](https://github.com/RogerZZZZZ/V8-blog/blob/master/Explain-Javascript-VMs-in%20Javascript/img/2.png)
+![2](https://github.com/RogerZZZZZ/V8-blog/blob/master/Explain-Javascript-VMs-in-Javascript/img/2.png)
 
 - 有时我将我知道关于V8的事情包装成一个文献列表，上面都是"做这个，而不是那个"的一些建议。这样做的问题在于它没有解释任何东西。就好像是一个神圣的仪式一样被关注，但是也会很容易变得不再那么引人注目。
 - 有时尝试去解释V8的内部运作原理，我选择的高度有问题。我喜欢一种想法，当看到一整篇被汇编代码塞的满满的讲义时，也许会让人们去学习汇编以及之后再次阅读这篇讲义，但是我也怕因为缺少一些实践过程中有用的信息，导致人们很快的遗忘。
@@ -186,7 +186,7 @@ STORE(os, 'clock', function () {
 
 现在我们翻译的代码运行了，但是速度很慢，因为每次加载和储存都要跨越所有的抽象层，在最终拿到值之前。让我们通过使用一个现在绝大多数JS虚拟机使用的基础优化来减少开支，那就是IC，即内联缓存。即使是用Java写的JS虚拟机也最终会使用它，因为`invokedynamic`本质上也是一个结构化的内联缓存，而它暴露在字节码层。内联缓存（同在在V8中缩写为IC）实际上是一个30年前为`SmallTalk VMs`而开发的很老的技术。
 
-![3](https://github.com/RogerZZZZZ/V8-blog/blob/master/Explain-Javascript-VMs-in%20Javascript/img/3.png)
+![3](https://github.com/RogerZZZZZ/V8-blog/blob/master/Explain-Javascript-VMs-in-Javascript/img/3.png)
 
 ### 好的鸭子叫声都相同
 
@@ -194,9 +194,11 @@ STORE(os, 'clock', function () {
 
 如果我们开始考虑将IC运用到上述的代码中时，我们就会发现需要改变之前的对象模型了。我们没办法以更快的方式从`Map`中读值，我们一直只能访问`get`方法。[如果而我们可以窥视一个Map之后原始的`hashtable`，我们就可以通过缓存`bucket index`让IC为我们服务，甚至不需要新的对象布局(`object layout`)]
 
+![4](https://github.com/RogerZZZZZ/V8-blog/blob/master/Explain-Javascript-VMs-in-Javascript/img/4.png)
+
 ### 发现隐藏结构
 
-![4](https://github.com/RogerZZZZZ/V8-blog/blob/master/Explain-Javascript-VMs-in%20Javascript/img/4.png)
+![5](https://github.com/RogerZZZZZ/V8-blog/blob/master/Explain-Javascript-VMs-in-Javascript/img/5.png)
 
 对于高效的table，比如我们使用的结构化数据需要像C语言中的`structs`一样：一些在固定偏移位置的域的序列。 与table相同的被用作为array：我们想要一些数字属性存于数组中。但十分明显的是：不是所有的table都适用这样的表示方法：一些实际上被使用为table，要不包含非字符串非数字的keys，要不包含很多用字符串命名的属性。不幸的是我们不能执行任何高代价的类型推断，我们只能去发现一种在程序运行时在每个table之后的一种结构，并创建和改变它们。幸运的是有一种有名的技术允许我们这样做，这个技术被称为隐藏类(`hidden classes`)
 
@@ -388,6 +390,8 @@ Table.prototype = {
 现在我们在运行系统中有了隐藏类，这允许我们能够快速检查对象结构，通过偏移量快速读取属性值。这些的存在也让我们能够实现内联缓存。编译器和运行系统还需要一些补充的方法(还记得我是怎么谈论虚拟机中不同部分是如何合作的吗？)。
 
 ### 生成代码的拼凑被子 (Patchwork quilts of generated code)
+
+![6](https://github.com/RogerZZZZZ/V8-blog/blob/master/Explain-Javascript-VMs-in-Javascript/img/6.png)
 
 其中一种实现一个内联缓存的方法是将它一分为二：生成代码中可变的方法调用，以及可以被方法调用站点调用的`stubs`集合(生成的原生代码的小片段)。`stubs`(或是运行系统)本质上可以找到方法调用的站点: `stubs`只包含在特定假设下编译的快速路径，如果这些假设不适用于`stubs`看到的对象，则`stubs`会开始修改（修补）这个调用`stubs`的调用位置，以便让该位置适应新的环境。我们原生JS中的IC也包含两个部分：
 
