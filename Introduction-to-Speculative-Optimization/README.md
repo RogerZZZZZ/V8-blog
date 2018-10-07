@@ -12,7 +12,7 @@
 
 在深入研究TurboFan是如何工作之前，我简短地对V8如何工作进行在较高层面上进行解释。（picture taken from the “JavaScript Start-up Performance” blog post by my colleague Addy Osmani)
 
-![Overview](https://github.com/RogerZZZZZ/V8-journeys/blob/master/translation/%08Introduction-to-Speculative-Optimization/img/1.png)
+![Overview](https://github.com/RogerZZZZZ/V8-journeys/blob/master/Introduction-to-Speculative-Optimization/img/1.png)
 
 无论何时Chrome或者Node需要执行一些JS代码，都需要将源代码输入到V8。V8将代码输入到一个称为`Parser`的地方，`Parser` 创建了AST（抽象语法树），这个来源于我同事 [Marja Hölttä](https://twitter.com/marjakh)就这个话题如何在V8中工作有一个演讲[ “Parsing JavaScript — better lazy than eager?”](https://www.youtube.com/watch?v=Fg7niTmNNLg)。之后被输入到一个称为`Ignition Intepreter`转化为字节码流，之后再由`Ignition`执行。
 
@@ -33,7 +33,7 @@ console.log(add(1, 2))
 
 如果你在DevTools中执行,你会看到结果为3。
 
-![Function add](https://github.com/RogerZZZZZ/V8-journeys/blob/master/translation/%08Introduction-to-Speculative-Optimization/img/2.png)
+![Function add](https://github.com/RogerZZZZZ/V8-journeys/blob/master/Introduction-to-Speculative-Optimization/img/2.png)
 
 接下来我们看看V8是如何得到这个结果的。我们会一步一步的来看`function add`。在之前提到的，我们首先会将函数的原发解析为AST，这一步由`Parser`完成，你可以在`d8 shell`中通过命令`--print-ast` 来查看V8内部生成的AST。
 
@@ -55,7 +55,7 @@ FUNC at 12
 ```
 
 上述的代码不太好理解，我们将它以图片的形式展示：
-![visulize function add](https://github.com/RogerZZZZZ/V8-journeys/blob/master/translation/%08Introduction-to-Speculative-Optimization/img/3.png)
+![visulize function add](https://github.com/RogerZZZZZ/V8-journeys/blob/master/Introduction-to-Speculative-Optimization/img/3.png)
 
 开始，函数的字面量被解析为树的形态，一个子树为参数的声明，另一个子树是实际的函数体。在解析期间，是无法关联哪个名字对应哪个变量的。主要原因为JS中`变量提升`([funny var hoisting rules](https://developer.mozilla.org/en-US/docs/Web/JavaScript/Reference/Statements/var#var_hoisting))以及`eval`，当然也还有其他的原因。在解析器开始时创建叫做`VAR PROXY`的节点，在随后的作用于分析阶段，会将`VAR PROXY`节点连接到`VAR`节点，或者标记他们为全局或者动态查找中的一种，这取决于解析器是否看到`eval`在周围的作用域中。
 
@@ -84,7 +84,7 @@ Return
 
 为了解释这些，我们需要首先从较高层面来理解解释器是如何工作的，`Ignition`使用`register machine - 寄存器架构`(相对于之前在较早版本的V8中使用在FullCodegen compiler中的`stack machine`)。它保存了自己的局部状态，其中一些匹配到CPU的寄存器中，而另外的则匹配到实际机器的栈内存中的特定插槽(specific slots).
 
-![how the interpreter works](https://github.com/RogerZZZZZ/V8-journeys/blob/master/translation/%08Introduction-to-Speculative-Optimization/img/4.png)
+![how the interpreter works](https://github.com/RogerZZZZZ/V8-journeys/blob/master/Introduction-to-Speculative-Optimization/img/4.png)
 
 a0和a1两个特别的寄存器对应机器栈上函数的形参（在这个例子中我们有两个形参）。形参是在源代码中被声明的参数，与在函数运行时被传入的实际数值不同。每个字节码最后的计算值都会被保存在一个被称为累加器(accumulator)，当前的栈帧和激活记录被栈指针标识，而程序计数器(program counter)指向当前在字节码中执行的指令。接下来我们来看一个例子，关于每个独立字节码都做了什么：
 - `栈检查(StackCheck)`比较stack point与一些上限的差别(实际上应该被称为下限，因为V8中栈的方向都是向下的)。如果栈高于某个阈值，我们就会停止函数的运行以及抛出`RangeError`以告知栈出现溢出。
@@ -98,11 +98,11 @@ a0和a1两个特别的寄存器对应机器栈上函数的形参（在这个例�
 
 现在你对V8如何执行你的JS代码有了个大概的了解，现在是时候开始看`TurboFan`在图片中是干什么的了，以及你的JS代码如何变为高效的机器码。`+`操作符已经算是一个在JS中很复杂的操作了，在得出输入的相加结果之前需要进行大量的检查。
 
-![Runtime Semantics](https://github.com/RogerZZZZZ/V8-journeys/blob/master/translation/%08Introduction-to-Speculative-Optimization/img/5.png)
+![Runtime Semantics](https://github.com/RogerZZZZZ/V8-journeys/blob/master/Introduction-to-Speculative-Optimization/img/5.png)
 
 要想将上述的几行机器指令以最高性能运行(可与Java 和 C++媲美)，关键字为推测优化，通过假设输入的可能性。举例：当我们知道x和y都为数字时，我们执行x+y,我们就不需要处理他们任意一个为string或是其他更糟糕的情况--在操作数可以任意JS对象类型之前，我们需要对其执行抽象方法`ToPrimitive`。
 
-![ToPrimitive](https://github.com/RogerZZZZZ/V8-journeys/blob/master/translation/%08Introduction-to-Speculative-Optimization/img/6.png)
+![ToPrimitive](https://github.com/RogerZZZZZ/V8-journeys/blob/master/Introduction-to-Speculative-Optimization/img/6.png)
 
 当我们知道x和y都是数字时，我们就可排除一些副作用---比如说它不会导致电脑关机，不会写入文件，或是跳转到另外一个页面。此外我们知道这个操作不会抛出异常。而这些都是优化的关键，因为一个优化编译器只有在确定该表达式执行不会抛异常或是导致一些副作用，表达式才可以进行优化。
 
@@ -116,7 +116,7 @@ function add(x, y) {
 
 在这个特殊的例子中，我们收集关于输入操作数以及'+'操作的结果(Add字节码)，当我们使用TurboFan来优化时，我们目前只看到了数字，我们放置一些检查代码来检查到x和y也为数字（在这个情况下，我们可以知道结果也将会是数字，如果其中一个检查失败，我们将会退回到解析这些字节码，这个过程称为`Deoptimization - 去优化`。因此TurboFan并不关心`+`操作符带来的其他的情况，也不需要生成机器码去处理，而是专注于数字这一种情况，这样能更好的转换为机器码。
 
-![Add function interpret process](https://github.com/RogerZZZZZ/V8-journeys/blob/master/translation/%08Introduction-to-Speculative-Optimization/img/7.png)
+![Add function interpret process](https://github.com/RogerZZZZZ/V8-journeys/blob/master/Introduction-to-Speculative-Optimization/img/7.png)
 
 由`Ignition`解释器收集来的反馈被存储在一个称为反馈向量(Feedback Vector)的地方(之前被称为类型反馈向量-Type Feedback Vector)，**这个特殊的数据结构连接在闭包上**，并且包含多个根据具体内联缓存(inline cache -- IC)来存储反馈的插槽，即位集合，闭包和隐藏类。我的同事[Michael Stanton](https://twitter.com/ripsawridge)之前在[Amsterdam JS](https://amsterdamjs.com/)一篇名为[V8 and How it Listens to You](https://www.youtube.com/watch?v=u7zRSm8jzvA)的演讲，解释了一下反馈向量的概念。闭包也同样连接到`SharedFunctionInfo`，包含函数的基本信息(比如原始位置，字节码，严格/一般模式等等)，除此之外也有一个指向上下文的链接，它不包含函数的自由变量的值以及对全局对象的访问，(即<iframe>这样特定的数据结构)
 
@@ -153,7 +153,7 @@ DebugPrint: 0xb5101ea9d89: [Function] in OldSpace
 
 让我们简要的说明JS值是如何在V8中表示的，以更好地理解底层的概念。V8使用[Point Tagging -- 指针标记](https://en.wikipedia.org/wiki/Tagged_pointer)来在一般情况下表示值。我们通常在JS中使用的值都在堆中，这些值也需要被垃圾回收器进行管理(garbage collector)。但有一些值如果一直分配内存给他们将会有很昂贵的开销。特别是对于那些用于数组下标和存储暂时计算结果的小整数。
 
-![Store of Smi](https://github.com/RogerZZZZZ/V8-journeys/blob/master/translation/%08Introduction-to-Speculative-Optimization/img/8.png)
+![Store of Smi](https://github.com/RogerZZZZZ/V8-journeys/blob/master/Introduction-to-Speculative-Optimization/img/8.png)
 
 在V8中我们有两种标识：分别是Smi(`Small Integer`的缩写)以及堆对象，堆对象指向堆中的地址，我们需要知道的一点是，所有被分配的对象都需要对齐`word`的边界(64位，32位架构有所不同)，这就意味着2、3个最低位会一直为0，我们使用最低的2或3位来去辨别是Sim(1)还是堆对象(0)。对于64位架构上的Smi，后32位都会被标记为0，前32位用于存储对应的值。这就允许可以高效的在内存中访问32位的数值，而不是不得不使用load以及shift相关的值。并且JS中位运算都是32位的。
 
@@ -188,7 +188,7 @@ DebugPrint: 0xb5101ea9d89: [Function] in OldSpace
 
 首先我们看到调用次数现在为2，因为我们调用了函数两次。我们还看到现在`BinaryOp`插槽的值现在变为`Number`，这表明我们已经传入了其他类型的数字(如非整数)，此外这还有一张反馈的状态图如下：
 
-![Feedback Lattice](https://github.com/RogerZZZZZ/V8-journeys/blob/master/translation/%08Introduction-to-Speculative-Optimization/img/9.png)
+![Feedback Lattice](https://github.com/RogerZZZZZ/V8-journeys/blob/master/Introduction-to-Speculative-Optimization/img/9.png)
 
 反馈的状态从`None`开始，表示我们还没有看到任何东西(即输入)，所以我们不知道任何东西。`Any`状态表示我们看到了不兼容的输入和输出的组合，此时`Add`可以被认为是多态的(Polymorphic)。相反的，其余的状态表明`Add`是单态的（Monomorphic）,因为看到输入和输出都是相同类型的。
 
@@ -216,11 +216,11 @@ add(1, 2); // Optimize and run generated code.
 
 这里我们首先给函数传递两个`SignedSmall`即小整数，并且结果也将会在小整数的范围中。之后我们告诉V8它需要使用TurboFan来优化这个函数当这个函数在下次调用的时候。最后我们调用了函数，触发了TurboFan运行生成机器码。
 
-![How TurboFan works](https://github.com/RogerZZZZZ/V8-journeys/blob/master/translation/%08Introduction-to-Speculative-Optimization/img/10.png)
+![How TurboFan works](https://github.com/RogerZZZZZ/V8-journeys/blob/master/Introduction-to-Speculative-Optimization/img/10.png)
 
 TurboFan拿到之前生成给函数的字节码以及从函数的反馈向量中提取出的相关反馈，将它变为一个图示，再将图传递给前端，优化以及后端不同的阶段，我不会在这里细说这些步骤，这个话题是另一个系列博客讨论的，我们该看的是最终生成的机器码，以及这个优化推测是怎么运作的。你可以看优化代码的生成通过加上命令`--print-opt-code`
 
-![How TurboFan works](https://github.com/RogerZZZZZ/V8-journeys/blob/master/translation/%08Introduction-to-Speculative-Optimization/img/11.png)
+![How TurboFan works](https://github.com/RogerZZZZZ/V8-journeys/blob/master/Introduction-to-Speculative-Optimization/img/11.png)
 
 这是x64架构下TurboFan生成的代码，我留下一些注解并去掉了一些不需要关注的点(也就是一些去优化的确切执行序列)，我们来看看代码做了什么:
 
@@ -296,7 +296,7 @@ add(1.1, 2.2); // Oops?!
 
 通过命令`--allow-natives-syntax 以及 --trace-deopt`，我们可以观察到：
 
-![change to number example](https://github.com/RogerZZZZZ/V8-journeys/blob/master/translation/%08Introduction-to-Speculative-Optimization/img/12.png)
+![change to number example](https://github.com/RogerZZZZZ/V8-journeys/blob/master/Introduction-to-Speculative-Optimization/img/12.png)
 
 这有很多令人疑惑的输出，让我们提取一些重要的信息，首先我们标记出了为什么我们要去优化，因为这里输入不再是Smi，这就表示我们之前的假设有问题，我们看到了一个HeapObject，我们把第一个输出放入到rax中，并期望它是一个smi，但是他却是数字1.1，所以我们在x的检查就已经失败了，所以我们需要去优化并且回到解释字节码的版本。这将会是另一个文章讨论的了。
 
