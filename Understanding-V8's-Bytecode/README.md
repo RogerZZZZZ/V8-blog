@@ -20,7 +20,7 @@ V8是Google开源JS引擎。Chrome, Node.js以及很多应用都使用V8，这�
 
 ![3](https://github.com/RogerZZZZZ/V8-blog/blob/master/Understanding-V8's-Bytecode/img/3.png)
 
-你可以将V8的字节码理解为一个小的构建模块，它们可以组合起来建造任何的JS功能。V8有几百种字节码，它们有类似`Add`或者`TypeOf`的操作符，或是用于属性加载的`LdaNamedProperty`。V8也有一些类似`CreateObjectLiteral`或是`SuspendGenerator`这样优雅的字节码。头文件[bytecodes.h](https://github.com/v8/v8/blob/master/src/interpreter/bytecodes.h)定义了V8中所有的字节码。
+你可以将V8的字节码理解为一个小的构建模块，它们可以组合起来建造任何的JS功能。V8有几百种字节码，它们有类似`Add`或者`TypeOf`的操作符，或是用于属性加载的`LdaNamedProperty`。V8也有一些类似`CreateObjectLiteral`或是`SuspendGenerator`这样非常特别的字节码。头文件[bytecodes.h](https://github.com/v8/v8/blob/master/src/interpreter/bytecodes.h)定义了V8中所有的字节码。
 
 每个字节码将它的输入和输出指定为寄存器操作数。`Ignition`使用寄存器`r0, r1, r2, ...`以及一个累加器，几乎所有的字节码都使用累加器。它类似一个常规的寄存器，除了一点是字节码不会指定它。例如： `Add r1`将`r1`寄存器中的值加到累加器中的值中。这使得字节码更短小，也更节省内存。
 
@@ -32,7 +32,7 @@ V8是Google开源JS引擎。Chrome, Node.js以及很多应用都使用V8，这�
 function incrementX(obj) {
   return 1 + obj.x;
 }
-incrementX({x: 42});  // V8’s compiler is lazy, if you don’t run a function, it won’t interpret it.
+incrementX({x: 42});  // V8的编译器是惰性的，如果你不执行这个函数，它将不会被解释。
 ```
 
 > 如果你想看到JS代码的对应V8字节码，你可以通过D8或者是在Node.js(8.3或更高的版本)中带上`--print-bytecode`来执行代码来打印出对应的字节码。在Chrome中，在打开Chrome的命令后跟上`--js-flags="--print-bytecode"`
