@@ -180,7 +180,7 @@ object.y = 6;
 
 新的`shape`来源于一个在JS引擎中被称为转换链的东西，这里有一个例子：
 
-![13](https://github.com/RogerZZZZZ/V8-blog/blob/master/Shapes-and-Inline-Caches/img/13.svg)
+![13](https://github.com/RogerZZZZZ/V8-blog/blob/master/Shapes-and-Inline-Caches/img/12.svg)
 
 对象开始时没有任何的属性，所以指向一个空的`shape`。下一步就是添加了一个值为5的属性`x`到对象中，所以JS引擎将`shape`转换到包含属性`x`的形态，并且在`JSObject`偏移量为`0`的地方添加值`5`。在下一行中添加属性`y`，所以这时引擎转换到下一个包含`x & y`的`shape`，并且附加上值`6`到`JSObject`中(在偏移量为`1`的地方)。
 
@@ -188,7 +188,7 @@ object.y = 6;
 
 我们不需要存储每个`Shape`中所有的属性，而是，每个`Shape`只需要知道新引入的属性。比如：在这个例子中我们并没有必要再最后一个`shape`中存储`x`的信息，因为它可以在之前的结构中被找出。为了实现这个，每个`Shape`都有一个指向前一个`shape`的链接。
 
-![14](https://github.com/RogerZZZZZ/V8-blog/blob/master/Shapes-and-Inline-Caches/img/14.svg)
+![14](https://github.com/RogerZZZZZ/V8-blog/blob/master/Shapes-and-Inline-Caches/img/13.svg)
 
 如果你在JS代码中写`o.x`，JS引擎将会通过追溯转换链直到在一个`Shape`中招待属性`x`为止。
 
@@ -203,7 +203,7 @@ object2.y = 6;
 
 在这种情况下，我们需要分支，而不是一个转换链，我们最后会得到一个转换树。
 
-![15](https://github.com/RogerZZZZZ/V8-blog/blob/master/Shapes-and-Inline-Caches/img/15.svg)
+![15](https://github.com/RogerZZZZZ/V8-blog/blob/master/Shapes-and-Inline-Caches/img/14.svg)
 
 这里我们创建了空对象`a`，在其中加入属性`x`。最后我们得到一个包含单个值得`JSObject`以及两个`shapes`：一个空`shape`以及一个带有属性`x`的`shape`。
 
@@ -221,7 +221,7 @@ const object2 = { x: 6 };
 
 在`Object2`的例子中，直接生成从头开始已经有`x`的对象，而不是从空对象开始转换是有意义的。
 
-![16](https://github.com/RogerZZZZZ/V8-blog/blob/master/Shapes-and-Inline-Caches/img/16.svg)
+![16](https://github.com/RogerZZZZZ/V8-blog/blob/master/Shapes-and-Inline-Caches/img/15.svg)
 
 一个包含`x`的对象开始于一个包含`x`的`shape`，有效的跳过了空`shape`的阶段。这就是（至少）V8以及SpiderMonkey的做法。这样的优化缩短了转换链，也更加高效从字面量中构建对象。
 
@@ -238,15 +238,15 @@ point.z = 6;
 
 根据我们之前学到的，这会创建三个`shapes`在内存中(不包括空的`shape`)，当我们去访问对象上的`x`属性时，例如，当我们在程序中写下`point.x`，JS引擎将会顺着转换链去寻找：开始时位于最低端的`Shape`，最后在最上层的`Shape`中找到`x`。
 
-![17](https://github.com/RogerZZZZZ/V8-blog/blob/master/Shapes-and-Inline-Caches/img/17.svg)
+![17](https://github.com/RogerZZZZZ/V8-blog/blob/master/Shapes-and-Inline-Caches/img/16.svg)
 
 当我们频繁这么做的话将会特别的慢，特别是当一个对象有很多属性的时候。寻找属性的时间复杂度为`O(n)`，即随着对象中的属性增加而线性的增加。为了加速搜寻属性，JS引擎加入了`ShapeTable`的数据结构。这个`ShapeTable`类似一个字典，将每个key匹配上不同的`Shape`。
 
-![18](https://github.com/RogerZZZZZ/V8-blog/blob/master/Shapes-and-Inline-Caches/img/18.svg)
+![18](https://github.com/RogerZZZZZ/V8-blog/blob/master/Shapes-and-Inline-Caches/img/17.svg)
 
 等一下，现在我们回到了字典查询...在我们开始引入`Shapes`之前，我们就是这样！那么为什么我们要为`Shapes`烦恼呢？
 
-![17](https://github.com/RogerZZZZZ/V8-blog/blob/master/Shapes-and-Inline-Caches/img/17.svg)
+原因就是`shapes`启用了另一个优化，称为内联缓存。
 
 ### 内联缓存(ICs)
 
