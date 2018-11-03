@@ -9,7 +9,7 @@
 
 让我们简短的回顾一下V8的整个流程：V8的解释器，`Ignition`，在解释过程中收集函数的信息。一旦函数变`热`，这些信息将会被传到V8的编译器中，即`TurboFan`，它会生成优化后的机器码。当这些剖析数据不再有效时--比如说因为一个对象在运行时变为另一种类型(译：`Shape`发生改变)--优化过的机器码将会变为无效。在这种情况下，V8就需要逆优化。
 
-![1.An overview of V8,]()
+![1.An overview of V8](https://github.com/RogerZZZZZ/V8-blog/tree/master/Lazy-unlinking-of-deoptimized-functions/img/1.png)
 
 在优化时，`TurboFan`会为优化下的函数生成代码对象，即优化后的机器码。当这个函数被再次调用时，V8会寻找指向该函数的优化代码并执行它。在函数的逆优化过程中，我们需要解开之前与优化代码的链接，以避免下次再次执行，那这是怎么发生的呢？
 
@@ -28,7 +28,7 @@ for (var i = 0; i < 1000; i++) f1(0);
 
 每个函数都需要有一个`蹦床`给解释器--更多的细节在这些[slides](https://docs.google.com/presentation/d/1Z6oCocRASCfTqGq1GCo1jbULDGS-w-nzxkbVF7Up0u0/edit#slide=id.p)中--每个函数同样也会在`SharedFunctionInfo(SFI)`中保存一个指向`蹦床`的指针。每当V8需要回到未优化的代码时，`蹦床`就会被使用。因此，在逆优化过程会被传入不同类型的参数而被触发，比如，逆优化器可以简单地将Javascript函数的字段设置为`蹦床`。
 
-![2.An overview of V8,]()
+![2.An overview of V8](https://github.com/RogerZZZZZ/V8-blog/tree/master/Lazy-unlinking-of-deoptimized-functions/img/1.png)
 
 尽管看起来很简单，它也让V8去维护一个优化过得HS方法的列表。这是因为有可能不同的函数指向同一个优化代码对象。我们可以将我们的例子像下面一样扩展一下，这时函数`f1`和`f2`就都指向了同一个优化代码。
 
@@ -72,7 +72,7 @@ for (var i = 0; i < 1000; i++) {
 
 当我们在运行这个检查程序时，我们观察到V8花费了大约98%的执行时间来进行垃圾回收。我们之后去除了数据结构，转而使用了一个延迟取消链接的方法，这就是我们在x64上观察到的：
 
-![3]()
+![3](https://github.com/RogerZZZZZ/V8-blog/tree/master/Lazy-unlinking-of-deoptimized-functions/img/2.png)
 
 尽管这只是一个生成很多触发垃圾回收的JS函数的小型检查程序，它让我们了解到了这个数据结构所引入的开销。在[router benchmard](https://github.com/delvedor/router-benchmark)这样更实际的应用中我们看到了许多开销，这也激励我们完成这个工作。
 
@@ -147,6 +147,6 @@ __ RecordWriteField(rdi, JSFunction::kCodeOffset, rcx, r15,
 
 下面的图展示了提升和回归，相比于之前的提交来说，注意越高代表越好
 
-![4]()
+![4](https://github.com/RogerZZZZZ/V8-blog/tree/master/Lazy-unlinking-of-deoptimized-functions/img/3.png)
 
 ## TO BE CONTINUED
