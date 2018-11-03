@@ -144,17 +144,17 @@ logX(object2);
 
 让我们假设我们有一个对象有`x`和`y`两个属性，它使用我们之前讨论的字典数据类型：包含字符串类型的key，它们指向对应的属性值。
 
-![10](https://github.com/RogerZZZZZ/V8-blog/blob/master/Shapes-and-Inline-Caches/img/10.svg)
+![10](https://github.com/RogerZZZZZ/V8-blog/blob/master/Shapes-and-Inline-Caches/img/b_1.svg)
 
 当你访问一个属性，比如`Object.y`，JS引擎会在`JSObject`中寻找key `y`，之后加载对应的属性值，最后返回`[[Value]]`.
 
 但是这些属性值存在内存的什么位置呢？我们需要把它们作为`JSObject`的一部分存储吗？如果假设我们之后会看到更多对象具有这个`shape`，存储所有包含`JSObject`属性名和属性值的‘字典’将会非常的浪费。因为属性名在所有相同`shape`的对象中都是重复的。这就造成了大量的重复和没必要的内存使用。作为优化，引擎分开存储对象的`Shape`.
 
-![11](https://github.com/RogerZZZZZ/V8-blog/blob/master/Shapes-and-Inline-Caches/img/11.svg)
+![11](https://github.com/RogerZZZZZ/V8-blog/blob/master/Shapes-and-Inline-Caches/img/10.svg)
 
 `Shape`包含了除了`[[Value]]`以外所有的属性名和属性值。转而存储`JSObject`中值得偏移量，因此JS引擎知道在哪找到值。每个有相同`shape`的`JSObject`都指向这个`shape`的实例。现在每个`JSObject`只需要存储对于每个对象不同的值就可以了。
 
-![12](https://github.com/RogerZZZZZ/V8-blog/blob/master/Shapes-and-Inline-Caches/img/12.svg)
+![12](https://github.com/RogerZZZZZ/V8-blog/blob/master/Shapes-and-Inline-Caches/img/11.svg)
 
 当我们有多个对象时，优点就十分的明显。不管有多少个对象，只要它们的`shape`相同，我们只需要存储一次`shape`和属性信息！
 
@@ -246,7 +246,7 @@ point.z = 6;
 
 等一下，现在我们回到了字典查询...在我们开始引入`Shapes`之前，我们就是这样！那么为什么我们要为`Shapes`烦恼呢？
 
-![19](https://github.com/RogerZZZZZ/V8-blog/blob/master/Shapes-and-Inline-Caches/img/19.svg)
+![17](https://github.com/RogerZZZZZ/V8-blog/blob/master/Shapes-and-Inline-Caches/img/17.svg)
 
 ### 内联缓存(ICs)
 
@@ -262,21 +262,21 @@ function getX(o) {
 
 如果我们在`JSC`下运行这个函数，它会生成如下的字节码：
 
-![20](https://github.com/RogerZZZZZ/V8-blog/blob/master/Shapes-and-Inline-Caches/img/20.svg)
+![18](https://github.com/RogerZZZZZ/V8-blog/blob/master/Shapes-and-Inline-Caches/img/18.svg)
 
 第一个指令`get_by_id`从第一个参数(`arg1`)中加载了属性`x`，然后将结果存储到`loc0`中，第二个指令返回存在`loc0`中的数值。
 
 `JSC`还在指令`get_by_id`中嵌入一个内联缓存，由两条没有被初始化的插槽组成。
 
-![21](https://github.com/RogerZZZZZ/V8-blog/blob/master/Shapes-and-Inline-Caches/img/21.svg)
+![19](https://github.com/RogerZZZZZ/V8-blog/blob/master/Shapes-and-Inline-Caches/img/19.svg)
 
 现在我们假设将对象`{x: 'a'}`传入到函数`getX`中。根据我们之前学到的，这个对象又要一个包含属性`x`的`shape`，而这个`shape`存储了属性`x`以及它的偏移量。当你在第一次执行函数的时候，指令`get_by_id`会寻找属性`x`然后发现值被存在偏移量为`0`的位置。
 
-![22](https://github.com/RogerZZZZZ/V8-blog/blob/master/Shapes-and-Inline-Caches/img/22.svg)
+![20](https://github.com/RogerZZZZZ/V8-blog/blob/master/Shapes-and-Inline-Caches/img/20.svg)
 
 内联缓存将会被嵌入到指令`get_by_id`中去记忆`shapes`以及被寻找到的属性的偏移量：
 
-![23](https://github.com/RogerZZZZZ/V8-blog/blob/master/Shapes-and-Inline-Caches/img/23.svg)
+![21](https://github.com/RogerZZZZZ/V8-blog/blob/master/Shapes-and-Inline-Caches/img/21.svg)
 
 在接下来的运行中，内联缓存只需要去比较`Shape`间的差异，如果与之前相同，呢嘛额直接从被缓存的偏移量中读取值。特别的是，当JS引擎看到一个对象的`shape`是之前IC所记录的，它就不再需要去触及属性信息 - 而是完全跳过这些昂贵的属性信息查找。这相对于每次寻找属性来说有明显的加速。
 
@@ -294,11 +294,11 @@ const array = [
 
 引擎存储了数组的长度(`1`)，然后指向一个含有偏移量和`length`属性的`shape`
 
-![24](https://github.com/RogerZZZZZ/V8-blog/blob/master/Shapes-and-Inline-Caches/img/24.svg)
+![22](https://github.com/RogerZZZZZ/V8-blog/blob/master/Shapes-and-Inline-Caches/img/22.svg)
 
 这和我们之前见过的情况类似....但是数组中的数值存在哪里呢？
 
-![25](https://github.com/RogerZZZZZ/V8-blog/blob/master/Shapes-and-Inline-Caches/img/25.svg)
+![23](https://github.com/RogerZZZZZ/V8-blog/blob/master/Shapes-and-Inline-Caches/img/23.svg)
 
 每个数组都有一个分开的`element backing store`来存储所有数组索引的属性值。JS引擎不需要存储数组元素的任何属性，因为通常来说他们都是可写，可枚举以及可配置的。
 
@@ -322,7 +322,7 @@ const array = Object.defineProperty(
 
 在这样的边缘例子中，JS引擎将会把`element backing store`表示为由数组索引隐射到属性特性的字典。
 
-![26](https://github.com/RogerZZZZZ/V8-blog/blob/master/Shapes-and-Inline-Caches/img/26.svg)
+![24](https://github.com/RogerZZZZZ/V8-blog/blob/master/Shapes-and-Inline-Caches/img/24.svg)
 
 即使当单个数组元素没有默认属性时，整个数组的`backing store`将会变得很慢，并进入一个不高效的模式。**避免在数组索引上使用`Object.defineProperty`**(我也不确定为什么你会想这么做，这件事看起来很奇怪并且也没有什么用)。
 
