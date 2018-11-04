@@ -13,6 +13,7 @@
 - [Explaining JavaScript VMs in JavaScript - Inline Caches](https://github.com/RogerZZZZZ/V8-blog/tree/master/Explain-Javascript-VMs-in-Javascript)
 - [“Understanding V8’s Bytecode”](https://github.com/RogerZZZZZ/V8-blog/tree/master/Understanding-V8's-Bytecode)
 - [JavaScript engine fundamentals: Shapes and Inline Caches](https://github.com/RogerZZZZZ/V8-blog/tree/master/Shapes-and-Inline-Caches)
+- [Internship on Laziness] (https://github.com/RogerZZZZZ/V8-blog/tree/master/Lazy-unlinking-of-deoptimized-functions)
 
 ## Todo Tasks
 
@@ -29,6 +30,7 @@
     - [ ] [V8 and How it Listens to You](https://www.youtube.com/watch?v=u7zRSm8jzvA) -- Feedback Vector
     - [x] [Internship on Laziness](https://v8project.blogspot.com/2017/10/lazy-unlinking.html) TurboFan Prologue - check the parameters
     - [ ] [A tour of V8: Crankshaft, the optimizing compiler](https://www.jayconrod.com/posts/54/a-tour-of-v8-crankshaft-the-optimizing-compiler)
+    - [ ] [Embedded builtins](https://v8.dev/blog/embedded-builtins)
 - [ ] Optimization
     - [ ] [How To Write Fast, Memory-Efficient JavaScript](https://www.smashingmagazine.com/2012/11/writing-fast-memory-efficient-javascript/)
     - [ ] [Performance Tips for JavaScript in V8](https://www.html5rocks.com/en/tutorials/speed/v8/)
