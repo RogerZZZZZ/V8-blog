@@ -27,7 +27,7 @@
         - [x] [JavaScript engine fundamentals: Shapes and Inline Caches](https://mathiasbynens.be/notes/shapes-ics)
     - [x] [“Understanding V8’s Bytecode”](https://medium.com/dailyjs/understanding-v8s-bytecode-317d46c94775) - Ignition Interpreter
     - [ ] [V8 and How it Listens to You](https://www.youtube.com/watch?v=u7zRSm8jzvA) -- Feedback Vector
-    - [ ] [Internship on Laziness](https://v8project.blogspot.com/2017/10/lazy-unlinking.html) TurboFan Prologue - check the parameters
+    - [x] [Internship on Laziness](https://v8project.blogspot.com/2017/10/lazy-unlinking.html) TurboFan Prologue - check the parameters
     - [ ] [A tour of V8: Crankshaft, the optimizing compiler](https://www.jayconrod.com/posts/54/a-tour-of-v8-crankshaft-the-optimizing-compiler)
 - [ ] Optimization
     - [ ] [How To Write Fast, Memory-Efficient JavaScript](https://www.smashingmagazine.com/2012/11/writing-fast-memory-efficient-javascript/)

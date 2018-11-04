@@ -149,4 +149,47 @@ __ RecordWriteField(rdi, JSFunction::kCodeOffset, rcx, r15,
 
 ![4](https://github.com/RogerZZZZZ/V8-blog/blob/master/Lazy-unlinking-of-deoptimized-functions/img/3.png)
 
-## TO BE CONTINUED
+`promises`测试程序是所有当中有最高性能提升的，可以观察到`bluebird-paralle`测试程序有大概33%的提升，`wikipedia`有大概22.4%。我们也同样可以观察到一些测试程序中有性能的下滑。原因正如我们上面提到的，检查代码是否被标记为逆优化。
+
+我们同样可以看到在`ARES-6`中也有提升。显示在下面的图中，越高代表越好。这些程序以前会花费相当多的时间在垃圾回收相关的活动中。使用延迟取消链接后，总体来说提高了1.9%。最值得注意的是`Air steadyState`得到了大概5.36%的提升。
+
+![5](https://github.com/RogerZZZZZ/V8-blog/blob/master/Lazy-unlinking-of-deoptimized-functions/img/4.png)
+
+#### AreWeFastYet 上的结果
+
+`Octane`和`ARES-6`测试程序的性能结果显示在`AreWeFastYet`追踪器上。我们看2017年9月15改的性能结果，使用默认提供的机器(macOS 10.10 64-bit, Mac Pro, Shell)
+
+![Cross-browser results on Octane as seen on AreWeFastYet](https://github.com/RogerZZZZZ/V8-blog/blob/master/Lazy-unlinking-of-deoptimized-functions/img/5.png)
+
+![Cross-browser results on ARES-6 as seen on AreWeFastYet](https://github.com/RogerZZZZZ/V8-blog/blob/master/Lazy-unlinking-of-deoptimized-functions/img/6.png)
+
+### 对Node.js的影响
+
+我们可以看到`router-benchmark`上性能的提升。下面两张图展示的是每个被测试的路由每秒可执行的操作。因此越高越好。我们使用这个测试程序做了两种实验。第一个，我们将每个测试单独运行，以便我们可以独立于其余测试看到性能的提升。第二，我们一次性运行全部的测试，不切换虚拟机，以便模拟一个测试与其他方法集成的环境。
+
+对于第一个实验，我们看到`router`和`express`测试中在相同时间内操作比之前多了一倍。第二个实验中，我们看到更大的提升。在其中的一些例子中，例如: `routr`, `server-router`和`router`中得到了3.8x倍，3x倍以及2x倍的提升。这是因为V8在一个接一个测试之后积累了更多优化后的JS方法。因此，每当执行一个测试，如果垃圾回收周期被触发，V8需要访问当前测试和之前测试的优化函数。
+
+![8](https://github.com/RogerZZZZZ/V8-blog/blob/master/Lazy-unlinking-of-deoptimized-functions/img/7.png)
+
+![9](https://github.com/RogerZZZZZ/V8-blog/blob/master/Lazy-unlinking-of-deoptimized-functions/img/8.png)
+
+
+### 进一步优化
+
+需要注意的是V8并没有在上下文中保存了JS方法的链接关系列表，我们可以从`JSFunction`中取出`next`域。即使这是一个简单的修改，这也让我们在每个函数中节省了一个指针的空间，给许多网页节省了很大的空间。
+
+| benchmark     |  类型           |  内存节省（相对）  |  内存节省（绝对） |
+|---------------|----------------|------------------|----------------|
+| facebook.com  | 平均有效大小     | 170KB            | 3.70%          |
+| twitter.com   | 平均对象分配空间  | 284 KB           | 1.20%          |
+| cnn.com       | 平均对象分配空间  | 788 KB           | 1.53%          |
+| youtube.com   | 平均对象分配空间  | 129 KB           | 0.79%          |
+
+
+### 感谢
+
+在我整个实习期间，许多人给过我帮助，他们随时都可以回答我的问题。因此我要感谢一下人员：Benedkit Meurer, Jarsolav Sevcik以及Michael Starzinger，和他们一起讨论编译器和逆优化是如何工作的。每当我破坏了垃圾回收器时Ulan Degenbaev都会帮助我，以及Mathias Bynens，Peter Marshall， Camillo Bruni和Maya Lekova校对这篇文章。
+
+最后，这是我最为Google实习生最后的一个贡献，我会在这里再次感谢所有V8团队中的人，特别是我的领导，Benedikt Meurer对我的管理以及给我这样一个机会可以研究那么有趣的项目 - 我从中学到了很多，也十分享受在Google的时光！
+
+## DONE
