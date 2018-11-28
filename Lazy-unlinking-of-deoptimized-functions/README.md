@@ -9,7 +9,7 @@
 
 让我们简短的回顾一下V8的整个流程：V8的解释器，`Ignition`，在解释过程中收集函数的信息。一旦函数变`热`，这些信息将会被传到V8的编译器中，即`TurboFan`，它会生成优化后的机器码。当这些剖析数据不再有效时--比如说因为一个对象在运行时变为另一种类型(译：`Shape`发生改变)--优化过的机器码将会变为无效。在这种情况下，V8就需要逆优化。
 
-![1.An overview of V8](https://github.com/RogerZZZZZ/V8-blog/blob/master/Lazy-unlinking-of-deoptimized-functions/img/1.png)
+![1.An overview of V8](https://github.com/RogerZZZZZ/V8-blog/raw/master/Lazy-unlinking-of-deoptimized-functions/img/1.png)
 
 在优化时，`TurboFan`会为优化下的函数生成代码对象，即优化后的机器码。当这个函数被再次调用时，V8会寻找指向该函数的优化代码并执行它。在函数的逆优化过程中，我们需要解开之前与优化代码的链接，以避免下次再次执行，那这是怎么发生的呢？
 
@@ -28,7 +28,7 @@ for (var i = 0; i < 1000; i++) f1(0);
 
 每个函数都需要有一个`蹦床`给解释器--更多的细节在这些[slides](https://docs.google.com/presentation/d/1Z6oCocRASCfTqGq1GCo1jbULDGS-w-nzxkbVF7Up0u0/edit#slide=id.p)中--每个函数同样也会在`SharedFunctionInfo(SFI)`中保存一个指向`蹦床`的指针。每当V8需要回到未优化的代码时，`蹦床`就会被使用。因此，在逆优化过程会被传入不同类型的参数而被触发，比如，逆优化器可以简单地将Javascript函数的字段设置为`蹦床`。
 
-![2.An overview of V8](https://github.com/RogerZZZZZ/V8-blog/blob/master/Lazy-unlinking-of-deoptimized-functions/img/1.png)
+![2.An overview of V8](https://github.com/RogerZZZZZ/V8-blog/raw/master/Lazy-unlinking-of-deoptimized-functions/img/1.png)
 
 尽管看起来很简单，它也让V8去维护一个优化过得HS方法的列表。这是因为有可能不同的函数指向同一个优化代码对象。我们可以将我们的例子像下面一样扩展一下，这时函数`f1`和`f2`就都指向了同一个优化代码。
 
@@ -72,7 +72,7 @@ for (var i = 0; i < 1000; i++) {
 
 当我们在运行这个检查程序时，我们观察到V8花费了大约98%的执行时间来进行垃圾回收。我们之后去除了数据结构，转而使用了一个延迟取消链接的方法，这就是我们在x64上观察到的：
 
-![3](https://github.com/RogerZZZZZ/V8-blog/blob/master/Lazy-unlinking-of-deoptimized-functions/img/2.png)
+![3](https://github.com/RogerZZZZZ/V8-blog/raw/master/Lazy-unlinking-of-deoptimized-functions/img/2.png)
 
 尽管这只是一个生成很多触发垃圾回收的JS函数的小型检查程序，它让我们了解到了这个数据结构所引入的开销。在[router benchmard](https://github.com/delvedor/router-benchmark)这样更实际的应用中我们看到了许多开销，这也激励我们完成这个工作。
 
@@ -147,21 +147,21 @@ __ RecordWriteField(rdi, JSFunction::kCodeOffset, rcx, r15,
 
 下面的图展示了提升和回归，相比于之前的提交来说，注意越高代表越好
 
-![4](https://github.com/RogerZZZZZ/V8-blog/blob/master/Lazy-unlinking-of-deoptimized-functions/img/3.png)
+![4](https://github.com/RogerZZZZZ/V8-blog/raw/master/Lazy-unlinking-of-deoptimized-functions/img/3.png)
 
 `promises`测试程序是所有当中有最高性能提升的，可以观察到`bluebird-paralle`测试程序有大概33%的提升，`wikipedia`有大概22.4%。我们也同样可以观察到一些测试程序中有性能的下滑。原因正如我们上面提到的，检查代码是否被标记为逆优化。
 
 我们同样可以看到在`ARES-6`中也有提升。显示在下面的图中，越高代表越好。这些程序以前会花费相当多的时间在垃圾回收相关的活动中。使用延迟取消链接后，总体来说提高了1.9%。最值得注意的是`Air steadyState`得到了大概5.36%的提升。
 
-![5](https://github.com/RogerZZZZZ/V8-blog/blob/master/Lazy-unlinking-of-deoptimized-functions/img/4.png)
+![5](https://github.com/RogerZZZZZ/V8-blog/raw/master/Lazy-unlinking-of-deoptimized-functions/img/4.png)
 
 #### AreWeFastYet 上的结果
 
 `Octane`和`ARES-6`测试程序的性能结果显示在`AreWeFastYet`追踪器上。我们看2017年9月15改的性能结果，使用默认提供的机器(macOS 10.10 64-bit, Mac Pro, Shell)
 
-![Cross-browser results on Octane as seen on AreWeFastYet](https://github.com/RogerZZZZZ/V8-blog/blob/master/Lazy-unlinking-of-deoptimized-functions/img/5.png)
+![Cross-browser results on Octane as seen on AreWeFastYet](https://github.com/RogerZZZZZ/V8-blog/raw/master/Lazy-unlinking-of-deoptimized-functions/img/5.png)
 
-![Cross-browser results on ARES-6 as seen on AreWeFastYet](https://github.com/RogerZZZZZ/V8-blog/blob/master/Lazy-unlinking-of-deoptimized-functions/img/6.png)
+![Cross-browser results on ARES-6 as seen on AreWeFastYet](https://github.com/RogerZZZZZ/V8-blog/raw/master/Lazy-unlinking-of-deoptimized-functions/img/6.png)
 
 ### 对Node.js的影响
 
@@ -169,9 +169,9 @@ __ RecordWriteField(rdi, JSFunction::kCodeOffset, rcx, r15,
 
 对于第一个实验，我们看到`router`和`express`测试中在相同时间内操作比之前多了一倍。第二个实验中，我们看到更大的提升。在其中的一些例子中，例如: `routr`, `server-router`和`router`中得到了3.8x倍，3x倍以及2x倍的提升。这是因为V8在一个接一个测试之后积累了更多优化后的JS方法。因此，每当执行一个测试，如果垃圾回收周期被触发，V8需要访问当前测试和之前测试的优化函数。
 
-![8](https://github.com/RogerZZZZZ/V8-blog/blob/master/Lazy-unlinking-of-deoptimized-functions/img/7.png)
+![8](https://github.com/RogerZZZZZ/V8-blog/raw/master/Lazy-unlinking-of-deoptimized-functions/img/7.png)
 
-![9](https://github.com/RogerZZZZZ/V8-blog/blob/master/Lazy-unlinking-of-deoptimized-functions/img/8.png)
+![9](https://github.com/RogerZZZZZ/V8-blog/raw/master/Lazy-unlinking-of-deoptimized-functions/img/8.png)
 
 
 ### 进一步优化

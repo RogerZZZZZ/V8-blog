@@ -12,7 +12,7 @@
 
 ## 动态查找101
 
-![simple implementation](https://github.com/RogerZZZZZ/V8-blog/blob/master/What's-up-with-monomorphism/img/1.png)
+![simple implementation](https://github.com/RogerZZZZZ/V8-blog/raw/master/What's-up-with-monomorphism/img/1.png)
 
 为了简单起见，这个内容将会以JS中最简单的属性访问为例，比如下面的代码`o.x`。同时这是十分重要的去理解关于任何`动态范围(dynamically bound)`中的属性查找操作或是算式的计算。
 
@@ -58,7 +58,7 @@ void Interpret(jsbytecodes bc) {
 
 我们的解释器是健忘的: 每次我们需要一个属性的值我们就要执行一次属性查找的算法，它并没有从之前的尝试中学习到任何东西，而是每次付出的代价都相同。这就是为什么面向性能的虚拟机中属性查找的实现是不同的。
 
-![real implementation](https://github.com/RogerZZZZZ/V8-blog/blob/master/What's-up-with-monomorphism/img/2.png)
+![real implementation](https://github.com/RogerZZZZZ/V8-blog/raw/master/What's-up-with-monomorphism/img/2.png)
 
 要是程序中每次属性的访问都有能力从之前见过的对象中学习，并且将这个知识运用到相似的新对象上会怎么样呢？可能这会让我们省去很多执行一般查找算法的时间，而去在一些特定形式的对象上使用更快的方法。
 
@@ -91,11 +91,11 @@ f({ x: 6, a: 1 }) // polymorphic, degree 4
 f({ x: 7, b: 1 }) // megamorphic
 ```
 
-![monomorphic state](https://github.com/RogerZZZZZ/V8-blog/blob/master/What's-up-with-monomorphism/img/3.png)
+![monomorphic state](https://github.com/RogerZZZZZ/V8-blog/raw/master/What's-up-with-monomorphism/img/3.png)
 
 `megamorphic`状态的存在是为了防止多态缓存不受控制的增长，意味着“我看到太多不同形状的对象了，我放弃追踪他们了”。在V8中`megamorphic ICs`也会继续进行缓存，但是将会将想要缓存的东西放入全局的哈希表中，而不是在本地进行操作。这张哈希表有固定的大小，如果出现碰撞，将会简单的进行覆盖。
 
-![megamorphic ICs](https://github.com/RogerZZZZZ/V8-blog/blob/master/What's-up-with-monomorphism/img/4.png)
+![megamorphic ICs](https://github.com/RogerZZZZZ/V8-blog/raw/master/What's-up-with-monomorphism/img/4.png)
 
 现在我们用个小的练习来看看大家的理解:
 ```javascript
@@ -161,11 +161,11 @@ JS中的算术操作是`inherently typed`,比如 `a | 0`永远返回32位整数�
 - N维的多态缓存说”我只见过A1....An“
 - Megamorphic 缓存说”我见过很多东西“
 
-![type guard](https://github.com/RogerZZZZZ/V8-blog/blob/master/What's-up-with-monomorphism/img/5.png)
+![type guard](https://github.com/RogerZZZZZ/V8-blog/raw/master/What's-up-with-monomorphism/img/5.png)
 
 优化编译器查看IC收集来的信息，然后生成对应的`intermediate representation(IR)`。 IR指令通常比一般的JS操作更加底层以及明确。比如`.x` IC只看到`{x, y}`形状的对象，之后优化器会使用IR指令去对象中特定偏移量的地方读取属性，再用它加载`.x`。当然在任意对象上使用这样的指令是不安全的，所以优化器预先设置了一个类型哨兵(`type guard`)。类型哨兵在对象到达特定操作前检查他的形状(`shape of object`)，如果没有得到预期的对象，将不会在进行下去，而是会以未优化的代码继续运行。这个过程被称为逆优化(`deoptimization`)。逆优化的发生不仅仅只由类型哨兵产生，比如：算术操作只用于32位整数，如果计算结果溢出将会执行逆优化，`arr[idx]`中的idx需要在其长度范围内，否则会因为idx越界，`arr[idx]`不存在导致逆优化的发生。
 
-![deoptimization](https://github.com/RogerZZZZZ/V8-blog/blob/master/What's-up-with-monomorphism/img/6.png)
+![deoptimization](https://github.com/RogerZZZZZ/V8-blog/raw/master/What's-up-with-monomorphism/img/6.png)
 
 现在可以列出两条优化过程的缺点：
 
@@ -176,7 +176,7 @@ JS中的算术操作是`inherently typed`,比如 `a | 0`永远返回32位整数�
 
 实际上根据类型反馈构建明确的IR只是优化流程中的第一步。一旦IR准备就绪，编译器就会运行多次来寻找不变量和消除冗余。 在这一步运行过程的分析是过程中的(`intraprocedural`)，编译器也被强制在每次执行中假设最差的任意副作用。我们需要知道的是通常非个性化的操作本质都是调用自己。比如 `+` 求值就是调用`valueOf`以及调用getter方法来获得`o.x`属性访问。这就意味着那些由于某些原因特化失败的优化器将会阻塞接下来的优化进程。
 
-![eliminate redundancies](https://github.com/RogerZZZZZ/V8-blog/blob/master/What's-up-with-monomorphism/img/7.png)
+![eliminate redundancies](https://github.com/RogerZZZZZ/V8-blog/raw/master/What's-up-with-monomorphism/img/7.png)
 
 一个常见的例子是在监听相同形状下相同值的类型哨兵是重复的冗余。下面是最初函数g的IR的样子：
 ```
@@ -452,6 +452,6 @@ $StoreByOffset(this, offset_of_x, 1)
 
 如果你看到名为`XYZGeneric`或者任何被红色`changes[*]`的标记在你有限的循环中间时。那么你就需要开始担心了。
 
-![IR operation](https://github.com/RogerZZZZZ/V8-blog/blob/master/What's-up-with-monomorphism/img/8.png)
+![IR operation](https://github.com/RogerZZZZZ/V8-blog/raw/master/What's-up-with-monomorphism/img/8.png)
 
 ## Done

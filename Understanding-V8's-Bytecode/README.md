@@ -8,17 +8,17 @@
 
 V8是Google开源JS引擎。Chrome, Node.js以及很多应用都使用V8，这篇文章将解释什么是V8的字节码格式--一旦你了解一些基础概念后这篇文章将会很容易阅读。
 
-![1](https://github.com/RogerZZZZZ/V8-blog/blob/master/Understanding-V8's-Bytecode/img/1.png)
+![1](https://github.com/RogerZZZZZ/V8-blog/raw/master/Understanding-V8's-Bytecode/img/1.png)
 
 当V8编译JS代码时，解析器会生成抽象语法生成树，语法树是JS代码的语法结构表示。`Ignition`--解释器，从语法生成树中生成字节码。`TurboFan`--优化编译器，最终会用字节码生成优化过的机器码。
 
-![2](https://github.com/RogerZZZZZ/V8-blog/blob/master/Understanding-V8's-Bytecode/img/2.png)
+![2](https://github.com/RogerZZZZZ/V8-blog/raw/master/Understanding-V8's-Bytecode/img/2.png)
 
 如果你想知道为什么我们有两个执行模式，你可以查看我在`JSConfEU`上的视频： [link](https://www.youtube.com/watch?v=p-iiEDtpy6I)
 
 字节码是机器码的抽象。如果字节码被设计为与物理CPU相同的计算模型的话，将字节码编译为机器码会更加的简单。这就是为什么解释器通常为寄存器或是堆栈。**Ignition是一个具有累加器的寄存器**。
 
-![3](https://github.com/RogerZZZZZ/V8-blog/blob/master/Understanding-V8's-Bytecode/img/3.png)
+![3](https://github.com/RogerZZZZZ/V8-blog/raw/master/Understanding-V8's-Bytecode/img/3.png)
 
 你可以将V8的字节码理解为一个小的构建模块，它们可以组合起来建造任何的JS功能。V8有几百种字节码，它们有类似`Add`或者`TypeOf`的操作符，或是用于属性加载的`LdaNamedProperty`。V8也有一些类似`CreateObjectLiteral`或是`SuspendGenerator`这样非常特别的字节码。头文件[bytecodes.h](https://github.com/v8/v8/blob/master/src/interpreter/bytecodes.h)定义了V8中所有的字节码。
 
@@ -63,14 +63,14 @@ Handler Table (size = 16)
 
 `LdaSmi[1]`将常量`1`放入累加器中.
 
-![4](https://github.com/RogerZZZZZ/V8-blog/blob/master/Understanding-V8's-Bytecode/img/4.png)
+![4](https://github.com/RogerZZZZZ/V8-blog/raw/master/Understanding-V8's-Bytecode/img/4.png)
 
 
 #### Star r0
 
 接下来，`Star r0`存储了目前在累加器中的值，即`1`，到寄存器`r0`中。
 
-![5](https://github.com/RogerZZZZZ/V8-blog/blob/master/Understanding-V8's-Bytecode/img/5.png)
+![5](https://github.com/RogerZZZZZ/V8-blog/raw/master/Understanding-V8's-Bytecode/img/5.png)
 
 
 #### LdaNamedProperty a0, [0], [4]
@@ -90,14 +90,14 @@ Handler Table (size = 16)
 
 现在寄存器的情况如下：
 
-![6](https://github.com/RogerZZZZZ/V8-blog/blob/master/Understanding-V8's-Bytecode/img/6.png)
+![6](https://github.com/RogerZZZZZ/V8-blog/raw/master/Understanding-V8's-Bytecode/img/6.png)
 
 
 #### Add r0, [6]
 
 最后一个指令就是将`r0`的值加到累加器中，结果为`43`，`6`是另一个反馈向量的索引。
 
-![7](https://github.com/RogerZZZZZ/V8-blog/blob/master/Understanding-V8's-Bytecode/img/7.png)
+![7](https://github.com/RogerZZZZZ/V8-blog/raw/master/Understanding-V8's-Bytecode/img/7.png)
 
 
 #### Return

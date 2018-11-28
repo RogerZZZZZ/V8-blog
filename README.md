@@ -15,7 +15,7 @@
 
 ## Translation
 
-- [Introducation to Speculative Optimization](https://github.com/RogerZZZZZ/V8-journeys/tree/master/Introduction-to-Speculative-Optimization)
+- [Introducation to Speculative Optimization](https://github.com/RogerZZZZZ/V8-blog/tree/master/Introduction-to-Speculative-Optimization)
 - [“What’s up with monomorphism?”](https://github.com/RogerZZZZZ/V8-blog/tree/master/What's-up-with-monomorphism)
 - [Explaining JavaScript VMs in JavaScript - Inline Caches](https://github.com/RogerZZZZZ/V8-blog/tree/master/Explain-Javascript-VMs-in-Javascript)
 - [“Understanding V8’s Bytecode”](https://github.com/RogerZZZZZ/V8-blog/tree/master/Understanding-V8's-Bytecode)
@@ -25,7 +25,7 @@
 ## Todo Tasks
 
 - [ ] Overview
-    - [x] [Introducation to Speculative Optimization](https://github.com/RogerZZZZZ/V8-journeys/tree/master/translation/%08Introduction-to-Speculative-Optimization)
+    - [x] [Introducation to Speculative Optimization](https://github.com/RogerZZZZZ/V8-blog/tree/master/translation/%08Introduction-to-Speculative-Optimization)
     - [ ] [JavaScript engine fundamentals: optimizing prototypes](https://mathiasbynens.be/notes/prototypes)
 - [ ] Processings in V8
     - [x] Inline Cache
