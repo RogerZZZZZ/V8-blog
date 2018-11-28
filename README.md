@@ -4,7 +4,7 @@
 
 欢迎大家一起学习和指正我的错误，共同进步。
 
-如果我的一些小小的分享对你有帮助，欢迎Star~
+如果我的一些小小的分享对你有帮助，欢迎Star~ :star:
 
 ## Translation
 
@@ -13,7 +13,7 @@
 - [Explaining JavaScript VMs in JavaScript - Inline Caches](https://github.com/RogerZZZZZ/V8-blog/tree/master/Explain-Javascript-VMs-in-Javascript)
 - [“Understanding V8’s Bytecode”](https://github.com/RogerZZZZZ/V8-blog/tree/master/Understanding-V8's-Bytecode)
 - [JavaScript engine fundamentals: Shapes and Inline Caches](https://github.com/RogerZZZZZ/V8-blog/tree/master/Shapes-and-Inline-Caches)
-- [Internship on Laziness] (https://github.com/RogerZZZZZ/V8-blog/tree/master/Lazy-unlinking-of-deoptimized-functions)
+- [Internship on Laziness](https://github.com/RogerZZZZZ/V8-blog/tree/master/Lazy-unlinking-of-deoptimized-functions)
 
 ## Todo Tasks
 
