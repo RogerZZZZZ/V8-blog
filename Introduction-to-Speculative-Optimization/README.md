@@ -1,25 +1,34 @@
 # V8引擎中基于推测的优化介绍
 
 > Article: An Introduction to Speculative Optimization in V8
-
+>
 > Author: Benedikt Meurer
-
+>
 > Original [Link](http://benediktmeurer.de/2017/12/13/an-introduction-to-speculative-optimization-in-v8/)
+>
+> 译者： [RogerZZZZZ](https://github.com/RogerZZZZZ)
 
+**喜欢的话, 不妨关注我的专栏获取最新的文章:**
 
-可以在`JS Kongress`上关注我的一次演讲（[A Tale of TurboFan](https://www.youtube.com/watch?v=cvybnv79Sek)），我想要对关于TurboFan, V8 引擎的优化编译器如何工作以及V8是如何将你的JS代码便以为高性能的机器码进行一些补充讲解, 因为之前是演讲的缘故，我必须简短。所以在本文中将补充之前留下的坑，特别是在V8是如何收集和使用性能信息来完成基于推测的优化的。
+[**知乎专栏**](https://zhuanlan.zhihu.com/c_196857379)
+
+### 引言
+
+我会对关于TurboFan, V8 引擎的优化编译器如何工作 以及V8是如何将你的JS代码便以为高性能的机器码 进行一些补充讲解。 你也可以在`JS Kongress`上关注我的一次演讲（[A Tale of TurboFan](https://www.youtube.com/watch?v=cvybnv79Sek)）。因为之前是演讲的缘故，我只能讲解地非常简短。所以在本文中我将补充之前留下的坑，特别是在V8是如何收集和使用性能信息来完成基于推测的优化的。
 
 ### 总览
 
-在深入研究TurboFan是如何工作之前，我简短地对V8如何工作进行在较高层面上进行解释。（picture taken from the “JavaScript Start-up Performance” blog post by my colleague Addy Osmani)
+在深入研究TurboFan是如何工作之前，我简短地对V8如何工作进行较高层面上进行解释。
+
+（picture taken from the “JavaScript Start-up Performance” blog post by my colleague Addy Osmani)
 
 ![Overview](https://github.com/RogerZZZZZ/V8-blog/raw/master/Introduction-to-Speculative-Optimization/img/1.png)
 
-无论何时Chrome或者Node需要执行一些JS代码，都需要将源代码输入到V8。V8将代码输入到一个称为`Parser`的地方，`Parser` 创建了AST（抽象语法树），这个来源于我同事 [Marja Hölttä](https://twitter.com/marjakh)就这个话题如何在V8中工作有一个演讲[ “Parsing JavaScript — better lazy than eager?”](https://www.youtube.com/watch?v=Fg7niTmNNLg)。之后被输入到一个称为`Ignition Intepreter`转化为字节码流，之后再由`Ignition`执行。
+无论何时 Chrome或者Node需要执行一些JS代码，都需要将源代码输入到V8。V8将代码输入到一个称为`Parser`的地方，`Parser` 创建了AST（抽象语法树），这个来源于我同事 [Marja Hölttä](https://twitter.com/marjakh)就这个话题如何在V8中工作有一个演讲[ “Parsing JavaScript — better lazy than eager?”](https://www.youtube.com/watch?v=Fg7niTmNNLg)。之后被输入到一个称为`Ignition Intepreter`转化为字节码流，之后再由`Ignition`执行。
 
 在执行期间，`Ignition`收集关于输入的信息以及反馈给一些特定的操作。一些反馈信息就被`Ignition`自己使用来字节码的后续解释器。举例：对于像`o.x`这样的是属性访问，当o不变化时（即你一致都会传递`{x:v}` v为String给o），我们就会对如何拿到x的值进行缓存。再之后的字节码解析过程中我们将不会对`再o中需要属性x`的操作进行搜索。底层实现我们称之为内敛缓存(`inline cache`)。你可以在下面的blog中找到更多详情 ([“What’s up with monomorphism?”](https://mrale.ph/blog/2015/01/11/whats-up-with-monomorphism.html))。
 
-更重要的是，基于你的工作量，由`Ignition`解释器收集来的反馈信息将被TurboFan进行处理来来生成初高性能的机器码，所用技术就是今天的主题推测优化。在这里，优化编译器将会查看所有类型的值，并推测我们将来需要相同的值，这将会让TurboFan减少很多不需要处理的工作，从而在最高性能情况下执行Javascript。
+更重要的是，基于你的工作量，由`Ignition`解释器收集来的反馈信息将被TurboFan进行处理来来生成初高性能的机器码，所用技术就是今天的主题**推测优化**。在这里，优化编译器将会查看所有类型的值，并推测我们将来需要相同的值，这将会让TurboFan减少很多不需要处理的工作，从而保证Javascript的执行性能。
 
 ### 基本执行流
 
@@ -58,9 +67,9 @@ FUNC at 12
 上述的代码不太好理解，我们将它以图片的形式展示：
 ![visulize function add](https://github.com/RogerZZZZZ/V8-blog/raw/master/Introduction-to-Speculative-Optimization/img/3.png)
 
-开始，函数的字面量被解析为树的形态，一个子树为参数的声明，另一个子树是实际的函数体。在解析期间，是无法关联哪个名字对应哪个变量的。主要原因为JS中`变量提升`([funny var hoisting rules](https://developer.mozilla.org/en-US/docs/Web/JavaScript/Reference/Statements/var#var_hoisting))以及`eval`，当然也还有其他的原因。在解析器开始时创建叫做`VAR PROXY`的节点，在随后的作用于分析阶段，会将`VAR PROXY`节点连接到`VAR`节点，或者标记他们为全局或者动态查找中的一种，这取决于解析器是否看到`eval`在周围的作用域中。
+开始时，函数的字面量被解析为树的形态，一个子树为参数的声明，另一个子树是实际的函数体。在解析期间，是无法关联哪个名字对应哪个变量的。主要原因为JS中`变量提升`([funny var hoisting rules](https://developer.mozilla.org/en-US/docs/Web/JavaScript/Reference/Statements/var#var_hoisting))以及`eval`，当然也还有其他的原因。在解析器开始时创建叫做`VAR PROXY`的节点，在随后的作用于分析阶段，会将`VAR PROXY`节点连接到`VAR`节点，或者标记他们为全局或者动态查找中的一种，这取决于解析器是否看到`eval`在周围的作用域中。
 
-一旦完成我们就有了一个包含所有需要信息的AST去生成可执行的字节码。AST之后会被作为输入传到`BytecodeGenerator`, 这是`Ignition Interpreter`中的一部分用于生成以函数为单位的字节码。你可以通过`--print-bytecode`查看字节码的生成。
+一旦完成，我们就有了一个包含所有需要信息的AST去生成可执行的字节码。AST之后会被作为输入传到`BytecodeGenerator`, 这是`Ignition Interpreter`中的一部分用于生成以函数为单位的字节码。你可以通过`--print-bytecode`查看字节码的生成过程。
 ```
 $ out/Debug/d8 --print-bytecode add.js
 …
@@ -93,7 +102,7 @@ a0和a1两个特别的寄存器对应机器栈上函数的形参（在这个例�
 - `Add a0, [0]` 读取寄存器a0的值并累加到accumulator寄存器上，结果将会再次被放入accumulator寄存器中，`+`同样可以表示字符串的连接，`+`操作可以执行任意类型的操作数，`+`在JS中十分的复杂，有许多人在会谈中去阐明这种复杂性，比如 Emily Freeman 最近在 JS Kongress 中有一个题目为`”JavaScript’s “+” Operator and Decision Fatigue”`的主题演讲。`Add`操作符中的[0]指向一个`feedback vector slot`，即`Ignition`存储函数执行期间我们看到的值得分析信息。当我们之后讲解`TurboFan`如何优化函数的时候再回到这个话题。
 - `Return` 结束当前函数的运行，以及将控制归还给调用者，返回值是accumulator寄存器中当前的值。
 
-我的同事Franziska Hinkelmann 写了一篇文章 [“Understanding V8’s Bytecode”](https://medium.com/dailyjs/understanding-v8s-bytecode-317d46c94775)。这边文章将提供更多关于V8的字节码如何工作的细节。
+我的同事Franziska Hinkelmann 写了一篇文章 [“Understanding V8’s Bytecode”](https://medium.com/dailyjs/understanding-v8s-bytecode-317d46c94775)。这篇文章提供了更多关于V8的字节码如何工作的细节。
 
 ### 推测优化
 
@@ -101,13 +110,13 @@ a0和a1两个特别的寄存器对应机器栈上函数的形参（在这个例�
 
 ![Runtime Semantics](https://github.com/RogerZZZZZ/V8-blog/raw/master/Introduction-to-Speculative-Optimization/img/5.png)
 
-要想将上述的几行机器指令以最高性能运行(可与Java 和 C++媲美)，关键字为推测优化，通过假设输入的可能性。举例：当我们知道x和y都为数字时，我们执行x+y,我们就不需要处理他们任意一个为string或是其他更糟糕的情况--在操作数可以任意JS对象类型之前，我们需要对其执行抽象方法`ToPrimitive`。
+要想将上述的几行机器指令以最高性能运行(可与Java 和 C++媲美)，关键字为**推测优化**，通过假设输入的可能性。举例：当我们知道x和y都为数字时，我们执行x+y,我们就不需要处理他们任意一个为string或是其他更糟糕的情况--在操作数可以任意JS对象类型之前，我们需要对其执行抽象方法`ToPrimitive`。
 
 ![ToPrimitive](https://github.com/RogerZZZZZ/V8-blog/raw/master/Introduction-to-Speculative-Optimization/img/6.png)
 
-当我们知道x和y都是数字时，我们就可排除一些副作用---比如说它不会导致电脑关机，不会写入文件，或是跳转到另外一个页面。此外我们知道这个操作不会抛出异常。而这些都是优化的关键，因为一个优化编译器只有在确定该表达式执行不会抛异常或是导致一些副作用，表达式才可以进行优化。
+当我们知道x和y都是数字时，我们就可排除一些副作用---比如说它不会导致电脑关机，不会写入文件，或是跳转到另外一个页面。此外我们知道这个操作不会抛出异常。而这些都是优化的关键，因为一个优化编译器只有在确定该表达式执行不会抛异常或是导致一些副作用时，表达式才可以进行优化。
 
-因为JS的特性我们在运行之前都不会知道值得类型，即当我们看一些源代码时，常常不可能知道操作的输入的可能类型是什么，这就是为什么我们需要根据之前收集的反馈信息进行推测，之后我们假设在未来我们总会看到类似的值。听起来也许十分的局限，但是它已经被证明在类似JS这样的动态语言中能很好作用了。
+因为JS的特性我们在运行之前都不会知道值的类型。即当我们看一些源代码时，常常不可能知道操作的输入的可能类型是什么，这就是为什么我们需要根据之前收集的反馈信息进行推测，之后我们假设在未来我们总会看到类似的值。这听起来也许十分的局限，但是它已经被证明在类似JS这样的动态语言中能很好作用了。
 
 ```javascript
 function add(x, y) {
@@ -115,11 +124,11 @@ function add(x, y) {
 }
 ```
 
-在这个特殊的例子中，我们收集关于输入操作数以及'+'操作的结果(Add字节码)，当我们使用TurboFan来优化时，我们目前只看到了数字，我们放置一些检查代码来检查到x和y也为数字（在这个情况下，我们可以知道结果也将会是数字，如果其中一个检查失败，我们将会退回到解析这些字节码，这个过程称为`Deoptimization - 去优化`。因此TurboFan并不关心`+`操作符带来的其他的情况，也不需要生成机器码去处理，而是专注于数字这一种情况，这样能更好的转换为机器码。
+在这个特殊的例子中，我们收集关于输入操作数以及`+`操作的结果(Add字节码)。当我们使用TurboFan来优化时，我们目前只看到了数字，我们放置一些检查代码来检查到x和y也为数字（在这个情况下，我们可以知道结果也将会是数字，如果其中一个检查失败，我们将会退回到解析这些字节码，这个过程称为`Deoptimization - 去优化`。因此TurboFan并不关心`+`操作符带来的其他的情况，也不需要生成机器码去处理，而是专注于数字这一种情况，这样能更好的转换为机器码。
 
 ![Add function interpret process](https://github.com/RogerZZZZZ/V8-blog/raw/master/Introduction-to-Speculative-Optimization/img/7.png)
 
-由`Ignition`解释器收集来的反馈被存储在一个称为反馈向量(Feedback Vector)的地方(之前被称为类型反馈向量-Type Feedback Vector)，**这个特殊的数据结构连接在闭包上**，并且包含多个根据具体内联缓存(inline cache -- IC)来存储反馈的插槽，即位集合，闭包和隐藏类。我的同事[Michael Stanton](https://twitter.com/ripsawridge)之前在[Amsterdam JS](https://amsterdamjs.com/)一篇名为[V8 and How it Listens to You](https://www.youtube.com/watch?v=u7zRSm8jzvA)的演讲，解释了一下反馈向量的概念。闭包也同样连接到`SharedFunctionInfo`，包含函数的基本信息(比如原始位置，字节码，严格/一般模式等等)，除此之外也有一个指向上下文的链接，它不包含函数的自由变量的值以及对全局对象的访问，(即<iframe>这样特定的数据结构)
+由`Ignition`解释器收集来的反馈被存储在一个称为反馈向量(Feedback Vector)的地方(之前被称为类型反馈向量-Type Feedback Vector)，**这个特殊的数据结构连接在闭包上**，并且包含多个根据具体内联缓存(inline cache -- IC)来存储反馈的插槽，即位集合，闭包和隐藏类。我的同事[Michael Stanton](https://twitter.com/ripsawridge)之前在[Amsterdam JS](https://amsterdamjs.com/)一篇名为[V8 and How it Listens to You](https://www.youtube.com/watch?v=u7zRSm8jzvA)的演讲，解释了一下反馈向量的概念。闭包也同样连接到`SharedFunctionInfo`，包含函数的基本信息(比如原始位置，字节码，严格/一般模式等等)，除此之外也有一个指向上下文的链接，它不包含函数的自由变量的值以及对全局对象的访问，(即`<iframe>`这样特定的数据结构)
 
 在函数`add`中，Feedback Vector有一个有趣的插槽(除此之外还有普通的插槽)，这也是一个`BinaryOp`插槽(二进制操作`+ - *`等等)，用于记录输入的反馈以及我们目前看到的结果。你可以在工具Debug build of d8中的`%DebugPrint()`，并在运行时加上`--allow-natives-syntax`来查看一个特定闭包中的反馈向量。
 
@@ -145,7 +154,7 @@ DebugPrint: 0xb5101ea9d89: [Function] in OldSpace
  Slot #0 BinaryOp BinaryOp:SignedSmall
 ```
 
-我们看到调用次数(Invocation Count)为1，因为我们只调用了一次函数，此时我们还没有任何的优化(Optimized Code为0)，但在Feedback Vector中只有一个插槽，即为BinaryOp，并且现在的反馈为`SignedSmall`。这是什么意思呢？字节码`Add`表明反馈插槽位置0现在只看到了类型为`SignedSmall`的输入，并且也只输出类型为`SignedSmall`的输出。
+我们看到调用次数(Invocation Count)为1，因为我们只调用了一次函数。此时我们还没有任何的优化(Optimized Code为0)，但在Feedback Vector中只有一个插槽，即为BinaryOp，并且现在的反馈为`SignedSmall`。这是什么意思呢？字节码`Add`表明反馈插槽位置0现在只看到了类型为`SignedSmall`的输入，并且也只输出类型为`SignedSmall`的输出。
 
 但是什么事`SignedSmall`呢？JS并没有这名字的类型。这个名字来源于V8所做的优化操作，它表示小的有符号整数经常出现在程序中，需要特别的处理（其他的JS引擎也有类似的优化策略）。
 
@@ -199,11 +208,11 @@ DebugPrint: 0xb5101ea9d89: [Function] in OldSpace
 - **String** 表示输入是字符串
 - **BigInt** 表示输入都是大整数，可以参考现在[第二阶段的提案](https://tc39.github.io/proposal-bigint/)
 
-需要强调的一点是，反馈只能够在图中前进，不能够后退，如果我们尝试这样做，当我们看到的值不等于反馈的时候，如果我们回退，将会进入到一个去优化的循环中，在这个循环中优化编译器将会消耗反馈，也会跳出优化的代码回到解释器中。下次函数再次执行的时候，我们又会再次优化。所以如果我们在状态表中回退，TurboFan将会再次生成同样的代码，这样引擎将会一直忙于优化以及去优化的过程，而不是以高性能运行你的JS代码。
+需要强调的一点是，反馈只能够在图中前进，不能够后退。如果我们尝试这样做，当我们看到的值不等于反馈的时候，如果我们回退，将会进入到一个去优化的循环中，在这个循环中优化编译器将会消耗反馈，也会跳出优化的代码回到解释器中。下次函数再次执行的时候，我们又会再次优化。所以如果我们在状态表中回退，TurboFan将会再次生成同样的代码，这样引擎将会一直忙于优化以及去优化的过程，而不是以高性能运行你的JS代码。
 
 ### 优化管道 (The Optimization Pipeline)
 
-现在我们知道了`Ignition`是如何给函数收集反馈了，现在我们看看TurboFan是如何利用这些反馈来生成最少代码的，我会使用内部指令%OptimizeFunctionOnNextCall()来在一个特定时间在V8中优化一个函数，我们经常使用这些内部指令来以非常特定的方式测试引擎。
+现在我们知道了`Ignition`是如何给函数收集反馈了，让我们来看看TurboFan是如何利用这些反馈来生成最少代码的。我会使用内部指令%OptimizeFunctionOnNextCall()来在一个特定时间在V8中优化一个函数，我们经常使用这些内部指令来以非常特定的方式测试引擎。
 
 ```javascript
 function add(x, y) {
@@ -299,10 +308,15 @@ add(1.1, 2.2); // Oops?!
 
 ![change to number example](https://github.com/RogerZZZZZ/V8-blog/raw/master/Introduction-to-Speculative-Optimization/img/12.png)
 
-这有很多令人疑惑的输出，让我们提取一些重要的信息，首先我们标记出了为什么我们要去优化，因为这里输入不再是Smi，这就表示我们之前的假设有问题，我们看到了一个HeapObject，我们把第一个输出放入到rax中，并期望它是一个smi，但是他却是数字1.1，所以我们在x的检查就已经失败了，所以我们需要去优化并且回到解释字节码的版本。这将会是另一个文章讨论的了。
+这有很多令人疑惑的输出，让我们提取一些重要的信息。首先我们标记出了为什么我们要去优化，因为这里输入不再是Smi，这就表示我们之前的假设有问题，我们看到了一个HeapObject，我们把第一个输出放入到rax中，并期望它是一个smi，但是他却是数字1.1，所以我们在x的检查就已经失败了，所以我们需要去优化并且回到解释字节码的版本。这将会是另一个文章讨论的了。
 
 ### Takeaway
+
 I hope you enjoyed this dive into how speculative optimization works in V8 and how it helps us to reach peak performance for JavaScript applications. Don’t worry too much about these details though. When writing applications in JavaScript focus on the application design instead and make sure to use appropriate data structures and algorithms. Write idiomatic JavaScript, and let us worry about the low level bits of the JavaScript performance instead. If you find something that is too slow, and it shouldn’t be slow, please file a bug report, so we get a chance to look into that.
 
-
 ## DONE
+
+
+
+你可以关注我的知乎专栏获取最新的文章推送：
+
