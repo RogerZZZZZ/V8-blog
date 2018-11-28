@@ -1,24 +1,31 @@
 # V8 blogs
 
-我将会在这里放置一些我翻译的关于V8引擎的文章来记录我学习V8引擎的过程。
+我将会在这里放置一些我翻译的关于**V8引擎**的文章，用于记录我学习V8引擎的过程。
 
 欢迎大家一起学习和指正我的错误，共同进步。
 
-如果我的一些小小的分享对你有帮助，欢迎Star~
+如果我的一些小小的分享对你有帮助，欢迎Star~ :star:
+
+
+
+你也可以关注我的**知乎专栏**, 文章会同步更新到专栏:
+
+[**知乎专栏**](https://zhuanlan.zhihu.com/c_196857379)
+
 
 ## Translation
 
-- [Introducation to Speculative Optimization](https://github.com/RogerZZZZZ/V8-journeys/tree/master/Introduction-to-Speculative-Optimization)
+- [Introducation to Speculative Optimization](https://github.com/RogerZZZZZ/V8-blog/tree/master/Introduction-to-Speculative-Optimization)
 - [“What’s up with monomorphism?”](https://github.com/RogerZZZZZ/V8-blog/tree/master/What's-up-with-monomorphism)
 - [Explaining JavaScript VMs in JavaScript - Inline Caches](https://github.com/RogerZZZZZ/V8-blog/tree/master/Explain-Javascript-VMs-in-Javascript)
 - [“Understanding V8’s Bytecode”](https://github.com/RogerZZZZZ/V8-blog/tree/master/Understanding-V8's-Bytecode)
 - [JavaScript engine fundamentals: Shapes and Inline Caches](https://github.com/RogerZZZZZ/V8-blog/tree/master/Shapes-and-Inline-Caches)
-- [Internship on Laziness] (https://github.com/RogerZZZZZ/V8-blog/tree/master/Lazy-unlinking-of-deoptimized-functions)
+- [Internship on Laziness](https://github.com/RogerZZZZZ/V8-blog/tree/master/Lazy-unlinking-of-deoptimized-functions)
 
 ## Todo Tasks
 
 - [ ] Overview
-    - [x] [Introducation to Speculative Optimization](https://github.com/RogerZZZZZ/V8-journeys/tree/master/translation/%08Introduction-to-Speculative-Optimization)
+    - [x] [Introducation to Speculative Optimization](https://github.com/RogerZZZZZ/V8-blog/tree/master/translation/%08Introduction-to-Speculative-Optimization)
     - [ ] [JavaScript engine fundamentals: optimizing prototypes](https://mathiasbynens.be/notes/prototypes)
 - [ ] Processings in V8
     - [x] Inline Cache
